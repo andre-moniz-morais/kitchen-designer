@@ -3,6 +3,7 @@ import { getEntry } from '../catalog';
 import {
   add,
   clearances,
+  fitOpening,
   dist,
   dot,
   fmtCm,
@@ -303,8 +304,9 @@ export function PlanEditor() {
       if (!best.wall) return;
       let offset = best.t * best.wall.length;
       if (snapOn(e)) offset = snap(offset, settings.grid);
-      offset = Math.max(op.width / 2, Math.min(best.wall.length - op.width / 2, offset));
-      st().updateOpening(op.id, { wallIndex: best.wall.index, offset: round1(offset) }, false);
+      // Openings stay on a wall and never overlap each other; if it doesn't fit there, it stays put.
+      const fitted = fitOpening(op, offset, best.wall.index, best.wall.length, openings);
+      if (fitted !== null) st().updateOpening(op.id, { wallIndex: best.wall.index, offset: fitted }, false);
     }
   };
 
@@ -435,7 +437,7 @@ export function PlanEditor() {
 
           {/* Openings */}
           {openings.map((op) => (
-            <OpeningSymbol key={op.id} op={op} walls={walls} thickness={room.wallThickness} selected={selection?.kind === 'opening' && selection.id === op.id} />
+            <OpeningSymbol key={op.id} op={op} walls={walls} thickness={room.wallThickness} selected={selection?.kind === 'opening' && selection.id === op.id} k={k} />
           ))}
 
           {/* Items */}
@@ -604,7 +606,7 @@ function DraftLayer({ draft, hover, k }: { draft: Vec2[]; hover: { point: Vec2; 
   );
 }
 
-function OpeningSymbol({ op, walls, thickness, selected }: { op: Opening; walls: ReturnType<typeof getWalls>; thickness: number; selected: boolean }) {
+function OpeningSymbol({ op, walls, thickness, selected, k }: { op: Opening; walls: ReturnType<typeof getWalls>; thickness: number; selected: boolean; k: number }) {
   const w = walls[op.wallIndex];
   if (!w) return null;
   const c = add(w.a, mul(w.dir, op.offset));
@@ -614,7 +616,8 @@ function OpeningSymbol({ op, walls, thickness, selected }: { op: Opening; walls:
   const o = mul(w.out, thickness);
   const stroke = selected ? 'var(--accent)' : '#2f343b';
   const els: React.ReactNode[] = [];
-  if (op.kind === 'door') {
+  const ext = op.kind === 'door-ext';
+  if (op.kind === 'door' || ext) {
     const hinge = op.flip ? b : a;
     const closed = op.flip ? a : b;
     const side = op.swingOut ? add(w.out, v(0, 0)) : w.in;
@@ -622,7 +625,13 @@ function OpeningSymbol({ op, walls, thickness, selected }: { op: Opening; walls:
     const closedPt = op.swingOut ? add(closed, o) : closed;
     const open = add(base, mul(side, op.width));
     const sweep = cross2(sub(closedPt, base), sub(open, base)) > 0 ? 1 : 0;
-    els.push(<line key="leaf" x1={base.x} y1={base.y} x2={open.x} y2={open.y} stroke={stroke} strokeWidth={2} vectorEffect="non-scaling-stroke" />);
+    els.push(<line key="leaf" x1={base.x} y1={base.y} x2={open.x} y2={open.y} stroke={stroke} strokeWidth={ext ? 4.5 : 2} vectorEffect="non-scaling-stroke" />);
+    if (ext) {
+      // Exterior doors get a threshold on the outer face of the wall.
+      const t1 = add(a, o);
+      const t2 = add(b, o);
+      els.push(<line key="sill" x1={t1.x} y1={t1.y} x2={t2.x} y2={t2.y} stroke={stroke} strokeWidth={3.5} vectorEffect="non-scaling-stroke" />);
+    }
     els.push(
       <path key="arc" d={`M${open.x} ${open.y}A${op.width} ${op.width} 0 0 ${sweep} ${closedPt.x} ${closedPt.y}`} fill="none" stroke={stroke} strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />,
     );
@@ -638,6 +647,18 @@ function OpeningSymbol({ op, walls, thickness, selected }: { op: Opening; walls:
       <path d={pathOf([a, b, add(b, o), add(a, o)])} fill={op.kind === 'window' ? '#dfeaf2' : 'var(--floor)'} stroke={stroke} strokeWidth={selected ? 2 : 1} vectorEffect="non-scaling-stroke" />
       {els}
       <path d={pathOf([a, b, add(b, o), add(a, o)])} fill="transparent" stroke="transparent" strokeWidth={14} vectorEffect="non-scaling-stroke" />
+      {selected && (
+        <g pointerEvents="none">
+          {[
+            [w.a, a],
+            [a, b],
+            [b, w.b],
+          ].map(([p1, p2], i) => {
+            const off = mul(w.in, 26 * k);
+            return <DimLine key={i} a={add(p1, off)} b={add(p2, off)} k={k} ticks label={fmtCm(dist(p1, p2))} color={i === 1 ? 'var(--accent)' : 'var(--accent-2)'} />;
+          })}
+        </g>
+      )}
     </g>
   );
 }

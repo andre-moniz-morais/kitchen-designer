@@ -1,8 +1,8 @@
 import { ArrowDownToLine, ArrowUpToLine, Copy, FlipHorizontal2, Layers, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
-import { ANCHOR_LABELS, getEntry, SLOT_CATEGORIES, SLOT_LABELS } from '../catalog';
-import { add, fmtCm, getWalls, itemBelow, mul, normAngle, rotate, round1, stackElevation, v } from '../geometry';
+import { ANCHOR_LABELS, getEntry, itemOptions, SLOT_CATEGORIES, SLOT_LABELS, visibleSlots } from '../catalog';
+import { add, fitOpening, fmtCm, getWalls, itemBelow, mul, normAngle, rotate, round1, stackElevation, v } from '../geometry';
 import { useSelectedItem, useSelectedOpening, useStore } from '../store';
-import type { Item, MaterialSlot } from '../types';
+import { isDoor, type Item, type MaterialSlot, type Opening, type OpeningKind } from '../types';
 import { IconButton, NumberField, Section, Segmented, Toggle } from './controls';
 import { MaterialPicker } from './MaterialPicker';
 
@@ -60,6 +60,8 @@ function ItemProps({ it }: { it: Item }) {
   };
   // Ceiling-hung items keep their gap to the ceiling when their height changes.
   const setHeight = (h: number) => (e.anchor === 'ceiling' ? up({ height: h, elevation: Math.max(0, it.elevation - (h - it.height)) }) : up({ height: h }));
+  const opts = itemOptions(it);
+  const slots = visibleSlots(it);
 
   return (
     <div className="props">
@@ -89,6 +91,36 @@ function ItemProps({ it }: { it: Item }) {
           <NumberField label="Altura" value={it.height} min={0.5} max={400} onChange={setHeight} />
         </div>
       </Section>
+
+      {e.model === 'dishwasher' && (
+        <Section title="Instalação">
+          <Segmented
+            value={opts.builtIn === false ? 'free' : 'built'}
+            onChange={(v) => up({ options: { ...it.options, builtIn: v === 'built' }, height: v === 'built' ? 90 : 85 })}
+            options={[
+              { value: 'built', label: 'Encastrada', title: 'Escondida atrás de uma frente igual aos móveis, com tampo' },
+              { value: 'free', label: 'Livre instalação', title: 'Máquina à vista, com acabamento próprio' },
+            ]}
+          />
+          <p className="muted small">
+            {opts.builtIn === false ? 'Máquina à vista com painel de comandos. Altura típica 85 cm.' : 'Frente igual à dos móveis e tampo contínuo da bancada. Altura típica 90 cm com tampo.'}
+          </p>
+        </Section>
+      )}
+
+      {opts.hinge && (
+        <Section title="Dobradiças da porta (vista de frente)">
+          <Segmented
+            value={opts.hinge}
+            onChange={(h) => up({ options: { ...it.options, hinge: h } })}
+            options={[
+              { value: 'left', label: 'À esquerda' },
+              { value: 'right', label: 'À direita' },
+            ]}
+          />
+          <p className="muted small">Visto de frente. Coloque a coluna frigorífico e a coluna congelador lado a lado com dobradiças em lados opostos para as portas abrirem para fora.</p>
+        </Section>
+      )}
 
       <Section title="Altura e empilhamento">
         <div className="grid2">
@@ -141,9 +173,9 @@ function ItemProps({ it }: { it: Item }) {
         </div>
       </Section>
 
-      {e.slots.length > 0 && (
+      {slots.length > 0 && (
         <Section title="Materiais">
-          {e.slots.map((slot: MaterialSlot) => (
+          {slots.map((slot: MaterialSlot) => (
             <MaterialPicker
               key={slot}
               label={SLOT_LABELS[slot]}
@@ -163,18 +195,35 @@ function ItemProps({ it }: { it: Item }) {
   );
 }
 
+const OPENING_NAMES: Record<OpeningKind, string> = { door: 'Porta interior', 'door-ext': 'Porta exterior', window: 'Janela', passage: 'Passagem' };
+
 function OpeningProps() {
   const op = useSelectedOpening()!;
   const st = useStore.getState;
   const room = useStore((s) => s.project.room);
+  const openings = useStore((s) => s.project.openings);
   const wall = getWalls(room)[op.wallIndex];
-  const up = (p: Partial<typeof op>) => st().updateOpening(op.id, p);
-  const names = { door: 'Porta', window: 'Janela', passage: 'Passagem' };
+  const up = (p: Partial<Opening>) => st().updateOpening(op.id, p);
+  const L = wall?.length ?? 0;
+  // Keep the opening on its wall when its width or position changes.
+  const setWidth = (w: number) => {
+    const next = { ...op, width: Math.min(w, L) };
+    const off = fitOpening(next, op.offset, op.wallIndex, L, openings);
+    if (off !== null) up({ width: next.width, offset: off });
+  };
+  const setOffset = (centre: number) => {
+    const off = fitOpening(op, centre, op.wallIndex, L, openings);
+    if (off !== null) up({ offset: off });
+  };
+  const setKind = (k: OpeningKind) => {
+    if (k === 'window') up({ kind: k, elevation: op.kind === 'window' ? op.elevation : 105, height: op.kind === 'window' ? op.height : 110 });
+    else up({ kind: k, elevation: 0, height: Math.max(op.height, k === 'door-ext' ? 215 : 200) });
+  };
   return (
     <div className="props">
       <div className="props-head">
-        <strong className="name-static">{names[op.kind]}</strong>
-        <span className="muted small">Parede {op.wallIndex + 1}</span>
+        <strong className="name-static">{OPENING_NAMES[op.kind]}</strong>
+        <span className="muted small">Parede {op.wallIndex + 1} · arraste ao longo das paredes para mover (ou use as setas ← →)</span>
         <div className="props-actions">
           <IconButton title="Apagar (Del)" variant="danger" onClick={() => st().deleteSelection()}>
             <Trash2 size={16} />
@@ -184,32 +233,59 @@ function OpeningProps() {
       <Section title="Tipo">
         <Segmented
           value={op.kind}
-          onChange={(k) => up({ kind: k, ...(k === 'window' ? { elevation: op.elevation || 105, height: Math.min(op.height, 120) } : { elevation: 0, height: Math.max(op.height, 200) }) })}
+          onChange={setKind}
+          wrap
           options={[
-            { value: 'door', label: 'Porta' },
+            { value: 'door', label: 'Porta interior' },
+            { value: 'door-ext', label: 'Porta exterior' },
             { value: 'window', label: 'Janela' },
             { value: 'passage', label: 'Vão' },
           ]}
         />
       </Section>
-      <Section title="Dimensões">
+      <Section title="Tamanho">
         <div className="grid2">
-          <NumberField label="Largura" value={op.width} min={30} max={wall ? wall.length : 1000} onChange={(w) => up({ width: w })} />
-          <NumberField label="Altura" value={op.height} min={20} max={room.wallHeight} onChange={(h) => up({ height: h })} />
-          <NumberField label="Distância ao chão" value={op.elevation} min={0} max={room.wallHeight} onChange={(z) => up({ elevation: z })} />
-          {wall && (
+          <NumberField label="Largura" value={op.width} min={30} max={L || 1000} step={5} onChange={setWidth} />
+          <NumberField label="Altura" value={op.height} min={20} max={room.wallHeight - op.elevation} step={5} onChange={(h) => up({ height: h })} />
+          {op.kind === 'window' && (
             <NumberField
-              label="Distância ao canto"
-              value={op.offset - op.width / 2}
+              label="Altura do peitoril"
+              value={op.elevation}
               min={0}
-              max={wall.length - op.width}
-              onChange={(d) => up({ offset: d + op.width / 2 })}
-              hint="Distância do início da parede até à aresta da abertura"
+              max={room.wallHeight - op.height}
+              step={5}
+              onChange={(z) => up({ elevation: z })}
+              hint="Distância do chão até à base da janela"
             />
           )}
         </div>
       </Section>
-      {op.kind === 'door' && (
+      {wall && (
+        <Section title="Posição na parede">
+          <div className="grid2">
+            <NumberField
+              label="Até ao canto inicial"
+              value={op.offset - op.width / 2}
+              min={0}
+              max={L - op.width}
+              onChange={(d) => setOffset(d + op.width / 2)}
+              hint="Distância do canto onde a parede começa até à aresta da abertura"
+            />
+            <NumberField
+              label="Até ao canto final"
+              value={L - op.offset - op.width / 2}
+              min={0}
+              max={L - op.width}
+              onChange={(d) => setOffset(L - d - op.width / 2)}
+              hint="Distância da aresta da abertura até ao canto onde a parede termina"
+            />
+          </div>
+          <button type="button" className="btn" onClick={() => setOffset(L / 2)}>
+            Centrar na parede
+          </button>
+        </Section>
+      )}
+      {isDoor(op.kind) && (
         <Section title="Abertura">
           <button type="button" className="btn" onClick={() => up({ flip: !op.flip })}>
             <FlipHorizontal2 size={15} /> Trocar lado das dobradiças

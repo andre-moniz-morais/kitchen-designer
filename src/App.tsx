@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { PlanEditor } from './editor/PlanEditor';
-import { normAngle, round1 } from './geometry';
+import { fitOpening, getWalls, normAngle, round1 } from './geometry';
 import { emptyProject, exampleProject, rectRoom, useSelectedItem, useStore } from './store';
 import type { Project } from './types';
 import { CatalogPanel } from './ui/CatalogPanel';
@@ -100,6 +100,17 @@ export default function App() {
       } else if (e.key.toLowerCase() === 'r' && !mod && s.selection?.kind === 'item') {
         const it = s.project.items.find((i) => i.id === (s.selection as { id: string }).id);
         if (it) s.updateItem(it.id, { rotation: normAngle(it.rotation + (e.shiftKey ? -90 : 90)) });
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && s.selection?.kind === 'opening') {
+        // Doors and windows slide along their wall.
+        e.preventDefault();
+        const op = s.project.openings.find((o) => o.id === (s.selection as { id: string }).id);
+        const wall = op && getWalls(s.project.room)[op.wallIndex];
+        if (!op || !wall) return;
+        // Move in the on-screen direction of the key, whichever way the wall runs.
+        const sign = Math.abs(wall.dir.x) >= Math.abs(wall.dir.y) ? Math.sign(wall.dir.x) : Math.sign(wall.dir.y);
+        const delta = (e.key === 'ArrowRight' ? 1 : -1) * sign * (e.shiftKey ? 10 : 1);
+        const off = fitOpening(op, op.offset + delta, op.wallIndex, wall.length, s.project.openings);
+        if (off !== null) s.updateOpening(op.id, { offset: off });
       } else if (e.key.startsWith('Arrow') && s.selection?.kind === 'item') {
         e.preventDefault();
         const it = s.project.items.find((i) => i.id === (s.selection as { id: string }).id);

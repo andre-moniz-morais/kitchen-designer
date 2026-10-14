@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getEntry } from './catalog';
-import { getWalls, roomCenter, stackElevation, v } from './geometry';
+import { fitOpening, getWalls, roomCenter, stackElevation, v } from './geometry';
 import type { Item, Opening, Project, Room, Selection, Tool, Vec2, ViewMode } from './types';
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -38,6 +38,7 @@ export function createItem(type: string, x: number, y: number, rotation = 0, pat
     height: e.height,
     elevation: e.elevation,
     materials: { ...e.defaults },
+    ...(e.options ? { options: { ...e.options } } : {}),
     ...patch,
   };
 }
@@ -200,8 +201,23 @@ export const useStore = create<State>()(
               }
             }
           }
-          offset = Math.max(e.width / 2, Math.min(wall.length - e.width / 2, offset));
           const op: Opening = { id: uid(), kind: e.opening, wallIndex: wall.index, offset, width: e.width, height: e.height, elevation: e.elevation, flip: false, swingOut: false };
+          // Openings never overlap: fall back to the nearest free stretch of wall.
+          let placed = fitOpening(op, offset, wall.index, wall.length, project.openings);
+          if (placed === null) {
+            search: for (const w of [wall, ...walls.filter((x) => x !== wall)]) {
+              for (let t = e.width / 2; t <= w.length - e.width / 2; t += 5) {
+                const f = fitOpening(op, t, w.index, w.length, project.openings);
+                if (f !== null) {
+                  op.wallIndex = w.index;
+                  placed = f;
+                  break search;
+                }
+              }
+            }
+          }
+          if (placed === null) return null;
+          op.offset = placed;
           get().mutate((p) => ({ ...p, openings: [...p.openings, op] }));
           set({ selection: { kind: 'opening', id: op.id } });
           return null;

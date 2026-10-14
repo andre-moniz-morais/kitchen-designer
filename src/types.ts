@@ -13,7 +13,9 @@ export interface Room {
   wallColor: string;
 }
 
-export type OpeningKind = 'door' | 'window' | 'passage';
+export type OpeningKind = 'door' | 'door-ext' | 'window' | 'passage';
+
+export const isDoor = (k: OpeningKind) => k === 'door' || k === 'door-ext';
 
 export interface Opening {
   id: string;
@@ -32,6 +34,13 @@ export interface Opening {
 
 export type MaterialSlot = 'front' | 'body' | 'top' | 'finish';
 
+export interface ItemOptions {
+  /** Dishwasher: integrated behind a cabinet front (true) or freestanding (false). */
+  builtIn?: boolean;
+  /** Single-door appliances: side of the hinges, as seen from the front. */
+  hinge?: 'left' | 'right';
+}
+
 export interface Item {
   id: string;
   /** Catalog entry id. */
@@ -48,6 +57,7 @@ export interface Item {
   /** Distance from the floor to the bottom of the item, cm. */
   elevation: number;
   materials: Partial<Record<MaterialSlot, string>>;
+  options?: ItemOptions;
 }
 
 export interface Project {

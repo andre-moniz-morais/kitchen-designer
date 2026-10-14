@@ -310,9 +310,9 @@ function OpeningModel({ o, L, t, flip, wallH }: { o: Opening; L: number; t: numb
   const c = flip ? L - o.offset : o.offset;
   const top = Math.min(wallH - 1, o.elevation + o.height);
   const h = top - o.elevation;
-  const fr = 5;
-  const frame = color3('#3a3d42', 0.45, 0.3);
   if (o.kind === 'window') {
+    const fr = 5;
+    const frame = color3('#3a3d42', 0.45, 0.3);
     return (
       <group position={[c, o.elevation, t / 2]}>
         <mesh position={[0, h - fr / 2, 0]} material={frame}>
@@ -338,27 +338,56 @@ function OpeningModel({ o, L, t, flip, wallH }: { o: Opening; L: number; t: numb
     );
   }
   // Door: frame + slightly open leaf so it reads as a door.
+  // Interior doors are light and slim; exterior doors are heavier, dark, with a glazed strip and a threshold.
+  const ext = o.kind === 'door-ext';
+  const fr = ext ? 8 : 5;
+  const leafT = ext ? 6 : 4;
+  const frameMat = ext ? color3('#33363b', 0.45, 0.3) : color3('#f4f3ef', 0.55);
+  const leafMat = ext ? color3('#3b3e44', 0.5, 0.2) : color3('#f7f6f2', 0.55);
   const hingeLeft = flip ? !o.flip : o.flip;
   const hx = hingeLeft ? o.width / 2 - fr : -o.width / 2 + fr;
   const leafW = o.width - fr * 2;
+  const leafH = h - fr - (ext ? 2 : 0);
+  const dir = hingeLeft ? -1 : 1;
   const ang = (o.swingOut ? -1 : 1) * (hingeLeft ? -1 : 1) * 0.35;
   return (
     <group position={[c, o.elevation, 0]}>
       {[-1, 1].map((s) => (
-        <mesh key={s} position={[(s * (o.width - fr)) / 2, h / 2, t / 2]} material={frame} castShadow>
+        <mesh key={s} position={[(s * (o.width - fr)) / 2, h / 2, t / 2]} material={frameMat} castShadow>
           <boxGeometry args={[fr, h, t + 2]} />
         </mesh>
       ))}
-      <mesh position={[0, h - fr / 2, t / 2]} material={frame}>
+      <mesh position={[0, h - fr / 2, t / 2]} material={frameMat}>
         <boxGeometry args={[o.width, fr, t + 2]} />
       </mesh>
-      <group position={[hx, 0, o.swingOut ? t : 0]} rotation={[0, ang, 0]}>
-        <mesh position={[hingeLeft ? -leafW / 2 : leafW / 2, (h - fr) / 2, 0]} material={color3('#f7f6f2', 0.55)} castShadow>
-          <boxGeometry args={[leafW, h - fr, 4]} />
+      {ext && (
+        <mesh position={[0, 1, t / 2]} material={color3('#8d9096', 0.35, 0.8)} receiveShadow>
+          <boxGeometry args={[o.width, 2, t + 6]} />
         </mesh>
-        <mesh position={[hingeLeft ? -leafW + 7 : leafW - 7, 100, o.swingOut ? 4 : -4]} material={M.handle}>
-          <boxGeometry args={[12, 1.6, 1.6]} />
+      )}
+      <group position={[hx, ext ? 2 : 0, o.swingOut ? t : 0]} rotation={[0, ang, 0]}>
+        <mesh position={[(dir * leafW) / 2, leafH / 2, 0]} material={leafMat} castShadow>
+          <boxGeometry args={[leafW, leafH, leafT]} />
         </mesh>
+        {ext ? (
+          <>
+            {/* Narrow glazed strip near the hinge side and a long pull bar on both faces. */}
+            <mesh position={[dir * leafW * 0.28, leafH * 0.55, 0]} material={M.darkGlass}>
+              <boxGeometry args={[leafW * 0.14, leafH * 0.7, leafT + 0.4]} />
+            </mesh>
+            {[-1, 1].map((sd) => (
+              <mesh key={sd} position={[dir * (leafW - 9), 105, sd * (leafT / 2 + 3)]} material={M.handle}>
+                <boxGeometry args={[2.4, 80, 2.4]} />
+              </mesh>
+            ))}
+          </>
+        ) : (
+          [-1, 1].map((sd) => (
+            <mesh key={sd} position={[dir * (leafW - 7), 100, sd * (leafT / 2 + 2)]} material={M.handle}>
+              <boxGeometry args={[12, 1.6, 1.6]} />
+            </mesh>
+          ))
+        )}
       </group>
     </group>
   );

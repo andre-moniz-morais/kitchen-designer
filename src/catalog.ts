@@ -1,4 +1,4 @@
-import type { MaterialSlot, OpeningKind } from './types';
+import type { Item, ItemOptions, MaterialSlot, OpeningKind } from './types';
 
 export type ModelKind =
   | 'base'
@@ -10,6 +10,7 @@ export type ModelKind =
   | 'tall'
   | 'oven-tower'
   | 'fridge-tower'
+  | 'freezer-tower'
   | 'island'
   | 'countertop'
   | 'fridge'
@@ -29,6 +30,8 @@ export type ModelKind =
   | 'dryer'
   | 'wine'
   | 'table'
+  | 'table-round'
+  | 'table-oval'
   | 'chair'
   | 'stool'
   | 'pendant'
@@ -62,6 +65,7 @@ export interface CatalogEntry {
   defaults: Partial<Record<MaterialSlot, string>>;
   snapToWall: boolean;
   opening?: OpeningKind;
+  options?: ItemOptions;
   /** Short description shown on hover. */
   hint?: string;
 }
@@ -77,7 +81,6 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'base-40', name: 'Móvel base estreito', category: 'base', model: 'base', width: 40, depth: 60, height: 90, elevation: 0, anchor: 'floor', slots: ['front', 'body', 'top'], defaults: CAB, snapToWall: true },
   { id: 'drawers-60', name: 'Gaveteiro 3 gavetas', category: 'base', model: 'drawers', width: 60, depth: 60, height: 90, elevation: 0, anchor: 'floor', slots: ['front', 'body', 'top'], defaults: CAB, snapToWall: true },
   { id: 'sink-base-90', name: 'Móvel com lava-loiça', category: 'base', model: 'sink-base', width: 90, depth: 60, height: 90, elevation: 0, anchor: 'floor', slots: ['front', 'body', 'top', 'finish'], defaults: { ...CAB, finish: 'steel' }, snapToWall: true, hint: 'Cuba encastrada e torneira' },
-  { id: 'dishwasher', name: 'Máquina de lavar loiça', category: 'base', model: 'dishwasher', width: 60, depth: 60, height: 90, elevation: 0, anchor: 'floor', slots: ['front', 'top'], defaults: { front: 'white-matt', top: 'carrara' }, snapToWall: true, hint: 'Integrável, com frente igual aos móveis' },
   { id: 'wine', name: 'Garrafeira', category: 'base', model: 'wine', width: 60, depth: 57, height: 82, elevation: 0, anchor: 'floor', slots: ['finish'], defaults: { finish: 'steel-black' }, snapToWall: true },
   // Wall / ceiling
   { id: 'wall-60', name: 'Móvel de parede 1 porta', category: 'wall', model: 'wall', width: 60, depth: 35, height: 70, elevation: 145, anchor: 'wall', slots: ['front', 'body'], defaults: CAB_NO_TOP, snapToWall: true },
@@ -88,11 +91,13 @@ export const CATALOG: CatalogEntry[] = [
   // Tall
   { id: 'tall-60', name: 'Coluna despenseiro', category: 'tall', model: 'tall', width: 60, depth: 60, height: 220, elevation: 0, anchor: 'floor', slots: ['front', 'body'], defaults: CAB_NO_TOP, snapToWall: true },
   { id: 'oven-tower', name: 'Coluna forno + micro-ondas', category: 'tall', model: 'oven-tower', width: 60, depth: 60, height: 220, elevation: 0, anchor: 'floor', slots: ['front', 'body', 'finish'], defaults: { ...CAB_NO_TOP, finish: 'steel' }, snapToWall: true },
-  { id: 'fridge-tower', name: 'Coluna frigorífico integrado', category: 'tall', model: 'fridge-tower', width: 60, depth: 60, height: 220, elevation: 0, anchor: 'floor', slots: ['front', 'body'], defaults: CAB_NO_TOP, snapToWall: true },
   // Island & counters
   { id: 'island-180', name: 'Ilha com zona de refeição', category: 'island', model: 'island', width: 180, depth: 100, height: 90, elevation: 0, anchor: 'floor', slots: ['front', 'body', 'top'], defaults: CAB, snapToWall: false, hint: 'Tampo saliente de um dos lados para bancos' },
   { id: 'countertop', name: 'Tampo de bancada', category: 'island', model: 'countertop', width: 120, depth: 62, height: 4, elevation: 86, anchor: 'counter', slots: ['top'], defaults: { top: 'carrara' }, snapToWall: true, hint: 'Peça de tampo solta (pode ser usada como prateleira ou mesa)' },
   // Appliances
+  { id: 'dishwasher', name: 'Máquina de lavar loiça', category: 'appliance', model: 'dishwasher', width: 60, depth: 60, height: 90, elevation: 0, anchor: 'floor', slots: ['front', 'top', 'finish'], defaults: { front: 'white-matt', top: 'carrara', finish: 'steel' }, options: { builtIn: true }, snapToWall: true, hint: 'Encastrada (frente igual aos móveis) ou de livre instalação' },
+  { id: 'fridge-tower', name: 'Coluna frigorífico encastrado', category: 'appliance', model: 'fridge-tower', width: 60, depth: 60, height: 220, elevation: 0, anchor: 'floor', slots: ['front', 'body'], defaults: CAB_NO_TOP, options: { hinge: 'left' }, snapToWall: true, hint: '1 porta; abre para o lado oposto à coluna congelador' },
+  { id: 'freezer-tower', name: 'Coluna congelador encastrado', category: 'appliance', model: 'freezer-tower', width: 60, depth: 60, height: 220, elevation: 0, anchor: 'floor', slots: ['front', 'body'], defaults: CAB_NO_TOP, options: { hinge: 'right' }, snapToWall: true, hint: '1 porta; abre para o lado oposto à coluna frigorífico' },
   { id: 'fridge', name: 'Frigorífico combinado', category: 'appliance', model: 'fridge', width: 60, depth: 66, height: 190, elevation: 0, anchor: 'floor', slots: ['finish'], defaults: STEEL, snapToWall: true },
   { id: 'fridge-american', name: 'Frigorífico americano', category: 'appliance', model: 'fridge-american', width: 91, depth: 72, height: 178, elevation: 0, anchor: 'floor', slots: ['finish'], defaults: STEEL, snapToWall: true },
   { id: 'freezer', name: 'Congelador vertical', category: 'appliance', model: 'freezer', width: 60, depth: 66, height: 185, elevation: 0, anchor: 'floor', slots: ['finish'], defaults: { finish: 'enamel-white' }, snapToWall: true },
@@ -110,14 +115,16 @@ export const CATALOG: CatalogEntry[] = [
   { id: 'dryer', name: 'Máquina de secar roupa', category: 'appliance', model: 'dryer', width: 60, depth: 60, height: 85, elevation: 0, anchor: 'floor', slots: ['finish'], defaults: { finish: 'enamel-white' }, snapToWall: true },
   // Furniture
   { id: 'table', name: 'Mesa de refeição', category: 'furniture', model: 'table', width: 160, depth: 90, height: 75, elevation: 0, anchor: 'floor', slots: ['top', 'body'], defaults: { top: 'oak-natural', body: 'black-matt' }, snapToWall: false },
+  { id: 'table-round', name: 'Mesa redonda', category: 'furniture', model: 'table-round', width: 110, depth: 110, height: 75, elevation: 0, anchor: 'floor', slots: ['top', 'body'], defaults: { top: 'oak-natural', body: 'black-matt' }, snapToWall: false, hint: 'Pé central cónico, mais largo em baixo' },
+  { id: 'table-oval', name: 'Mesa oval', category: 'furniture', model: 'table-oval', width: 180, depth: 100, height: 75, elevation: 0, anchor: 'floor', slots: ['top', 'body'], defaults: { top: 'oak-natural', body: 'black-matt' }, snapToWall: false, hint: 'Pé central cónico, mais largo em baixo' },
   { id: 'chair', name: 'Cadeira', category: 'furniture', model: 'chair', width: 45, depth: 50, height: 85, elevation: 0, anchor: 'floor', slots: ['body', 'top'], defaults: { body: 'black-matt', top: 'oak-natural' }, snapToWall: false },
   { id: 'stool', name: 'Banco alto', category: 'furniture', model: 'stool', width: 40, depth: 40, height: 75, elevation: 0, anchor: 'floor', slots: ['body', 'top'], defaults: { body: 'black-matt', top: 'walnut' }, snapToWall: false },
   { id: 'pendant', name: 'Candeeiro suspenso', category: 'furniture', model: 'pendant', width: 30, depth: 30, height: 25, elevation: 175, anchor: 'ceiling', slots: ['finish'], defaults: { finish: 'brass' }, snapToWall: false },
   // Openings
-  { id: 'door', name: 'Porta', category: 'opening', model: 'opening', opening: 'door', width: 80, depth: 0, height: 210, elevation: 0, anchor: 'wall', slots: [], defaults: {}, snapToWall: true },
-  { id: 'door-wide', name: 'Porta larga', category: 'opening', model: 'opening', opening: 'door', width: 100, depth: 0, height: 210, elevation: 0, anchor: 'wall', slots: [], defaults: {}, snapToWall: true },
+  { id: 'door', name: 'Porta interior', category: 'opening', model: 'opening', opening: 'door', width: 80, depth: 0, height: 210, elevation: 0, anchor: 'wall', slots: [], defaults: {}, snapToWall: true },
+  { id: 'door-ext', name: 'Porta exterior', category: 'opening', model: 'opening', opening: 'door-ext', width: 90, depth: 0, height: 215, elevation: 0, anchor: 'wall', slots: [], defaults: {}, snapToWall: true, hint: 'Porta de entrada ou para o exterior' },
   { id: 'window', name: 'Janela', category: 'opening', model: 'opening', opening: 'window', width: 120, depth: 0, height: 110, elevation: 105, anchor: 'wall', slots: [], defaults: {}, snapToWall: true },
-  { id: 'window-tall', name: 'Janela de sacada', category: 'opening', model: 'opening', opening: 'window', width: 160, depth: 0, height: 220, elevation: 0, anchor: 'wall', slots: [], defaults: {}, snapToWall: true },
+  { id: 'window-tall', name: 'Porta-janela', category: 'opening', model: 'opening', opening: 'window', width: 160, depth: 0, height: 220, elevation: 0, anchor: 'wall', slots: [], defaults: {}, snapToWall: true },
   { id: 'passage', name: 'Passagem / vão', category: 'opening', model: 'opening', opening: 'passage', width: 90, depth: 0, height: 210, elevation: 0, anchor: 'wall', slots: [], defaults: {}, snapToWall: true },
 ];
 
@@ -148,3 +155,14 @@ export const ANCHOR_LABELS: Record<Anchor, string> = {
   wall: 'Parede',
   ceiling: 'Teto',
 };
+
+/** Material slots that apply to an item in its current configuration. */
+export function visibleSlots(it: Pick<Item, 'type' | 'options'>): MaterialSlot[] {
+  const e = getEntry(it.type);
+  if (e.model === 'dishwasher') return it.options?.builtIn === false ? ['finish'] : ['front', 'top'];
+  return e.slots;
+}
+
+export function itemOptions(it: Pick<Item, 'type' | 'options'>): ItemOptions {
+  return { ...getEntry(it.type).options, ...it.options };
+}
