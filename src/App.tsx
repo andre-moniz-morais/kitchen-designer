@@ -65,6 +65,12 @@ export default function App() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [help, setHelp] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
   const viewer = useRef<Viewer3DHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -130,7 +136,7 @@ export default function App() {
       if (!p || !p.room || !Array.isArray(p.room.points) || !Array.isArray(p.items)) throw new Error('formato');
       st().setProject({ ...emptyProject(), ...p, openings: p.openings ?? [] });
     } catch {
-      alert('Não foi possível abrir este ficheiro. Confirme que é um projeto exportado por esta aplicação.');
+      setToast('Não foi possível abrir este ficheiro. Confirme que é um projeto exportado por esta aplicação.');
     }
   };
 
@@ -189,7 +195,7 @@ export default function App() {
               <>
                 <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
                 <div className="menu" onClick={() => setMenuOpen(false)}>
-                  <button type="button" onClick={() => confirm('Começar um projeto novo? O projeto atual será substituído (pode anular com Ctrl+Z).') && st().setProject(emptyProject(rectRoom(400, 300)))}>
+                  <button type="button" onClick={() => st().setProject(emptyProject(rectRoom(400, 300)))} title="Pode anular com Ctrl+Z">
                     <FilePlus2 size={16} /> Novo projeto
                   </button>
                   <button type="button" onClick={() => st().setProject(exampleProject())}>
@@ -318,6 +324,12 @@ export default function App() {
             </button>
           </nav>
         </>
+      )}
+
+      {toast && (
+        <div className="toast" role="status" onClick={() => setToast(null)}>
+          {toast}
+        </div>
       )}
 
       {(!welcomed || help) && (

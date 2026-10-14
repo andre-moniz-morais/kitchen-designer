@@ -17,13 +17,14 @@ export function RoomPanel({ onStartDraw }: { onStartDraw?: () => void }) {
   const [l, setL] = useState(300);
   const [cw, setCw] = useState(150);
   const [cl, setCl] = useState(120);
+  const [keepItems, setKeepItems] = useState(true);
+  const hasItems = useStore((s) => s.project.items.length > 0);
   const area = room.closed ? Math.abs(polygonArea(room.points)) / 10000 : 0;
 
   const applyShape = () => {
     const p = st().project;
     const r = shape === 'rect' ? rectRoom(w, l, p.room) : lRoom(w, l, Math.min(cw, w - 50), Math.min(cl, l - 50), p.room);
-    const keep = p.items.length > 0 && confirm('Manter os móveis já colocados? (Cancelar remove-os)');
-    st().setProject({ ...p, room: r, openings: [], items: keep ? p.items : [] });
+    st().setProject({ ...p, room: r, openings: [], items: keepItems ? p.items : [] });
   };
 
   return (
@@ -47,6 +48,7 @@ export function RoomPanel({ onStartDraw }: { onStartDraw?: () => void }) {
             </>
           )}
         </div>
+        {hasItems && <Toggle label="Manter os móveis já colocados" checked={keepItems} onChange={setKeepItems} />}
         <button type="button" className="btn primary block" onClick={applyShape}>
           <Square size={15} /> Criar divisão {w} × {l} cm
         </button>

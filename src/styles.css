@@ -943,6 +943,22 @@ kbd {
   margin: 4px 0;
 }
 
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  max-width: min(480px, calc(100% - 32px));
+  background: var(--text);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 60;
+  font-size: 13px;
+}
+
 /* ---------- Modal ---------- */
 .modal-backdrop {
   position: fixed;
