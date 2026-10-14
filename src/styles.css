@@ -354,6 +354,12 @@ kbd {
   color: var(--text);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
+.segmented.wrap {
+  flex-wrap: wrap;
+}
+.segmented.wrap button {
+  flex: 1 1 45%;
+}
 .segmented.sm button {
   padding: 4px 6px;
   font-size: 12px;

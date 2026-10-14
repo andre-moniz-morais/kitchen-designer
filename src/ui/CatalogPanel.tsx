@@ -11,9 +11,10 @@ function Thumb({ e }: { e: CatalogEntry }) {
       <svg viewBox="-60 -40 120 80" className="cat-thumb">
         <rect x={-58} y={-8} width={116} height={16} fill="var(--wall)" />
         <rect x={-35} y={-8} width={70} height={16} fill={e.opening === 'window' ? '#dfeaf2' : 'var(--floor)'} stroke="#2f343b" strokeWidth={1} />
-        {e.opening === 'door' && (
+        {e.opening === 'door-ext' && <line x1={-35} y1={-8} x2={35} y2={-8} stroke="#2f343b" strokeWidth={3} />}
+        {(e.opening === 'door' || e.opening === 'door-ext') && (
           <>
-            <line x1={-35} y1={8} x2={-35} y2={38} stroke="#2f343b" strokeWidth={2} />
+            <line x1={-35} y1={8} x2={-35} y2={38} stroke="#2f343b" strokeWidth={e.opening === 'door-ext' ? 4 : 2} />
             <path d="M-35 38A70 70 0 0 0 35 8" fill="none" stroke="#2f343b" strokeDasharray="4 3" />
           </>
         )}
@@ -22,12 +23,14 @@ function Thumb({ e }: { e: CatalogEntry }) {
     );
   }
   const pad = 8;
+  // Single-door columns show their door swing in front, so frame that too.
+  const swing = e.options?.hinge ? e.width : 0;
   const w = e.width + pad * 2;
-  const d = Math.max(e.depth, 20) + pad * 2;
+  const d = Math.max(e.depth, 20) + swing + pad * 2;
   const s = Math.max(w, d);
   return (
-    <svg viewBox={`${-s / 2} ${-s / 2} ${s} ${s}`} className="cat-thumb">
-      <PlanSymbol item={{ type: e.id, width: e.width, depth: e.depth, materials: e.defaults, elevation: 0, height: e.height }} scale={0.6 * (80 / s)} />
+    <svg viewBox={`${-s / 2} ${-s / 2 + swing / 2} ${s} ${s}`} className="cat-thumb">
+      <PlanSymbol item={{ type: e.id, width: e.width, depth: e.depth, materials: e.defaults, elevation: 0, height: e.height, options: e.options }} scale={0.6 * (80 / s)} />
     </svg>
   );
 }

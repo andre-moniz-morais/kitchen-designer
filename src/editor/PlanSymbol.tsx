@@ -1,4 +1,4 @@
-import { getEntry } from '../catalog';
+import { getEntry, itemOptions } from '../catalog';
 import { getMaterial } from '../materials';
 import type { Item } from '../types';
 
@@ -33,11 +33,12 @@ const LABELS: Partial<Record<string, string>> = {
   dryer: 'MSR',
   wine: 'VINHO',
   'fridge-tower': 'FRIG.',
+  'freezer-tower': 'CONG.',
   'oven-tower': 'FORNO',
 };
 
 interface Props {
-  item: Pick<Item, 'type' | 'width' | 'depth' | 'materials' | 'elevation' | 'height'>;
+  item: Pick<Item, 'type' | 'width' | 'depth' | 'materials' | 'elevation' | 'height' | 'options'>;
   selected?: boolean;
   /** px per cm, used to keep text legible. */
   scale: number;
@@ -85,8 +86,26 @@ export function PlanSymbol({ item, selected, scale, ghost }: Props) {
     lines.push(<rect key="basin" x={-bw / 2} y={cy - bd / 2} width={bw} height={bd} rx={5} fill="#d5d9dd" stroke={ink} strokeWidth={1} {...NS} />);
     lines.push(circle(0, cy, 2.2, 'drain'));
     lines.push(circle(0, cy - bd / 2 - 5, 2.5, 'tap', { fill: ink }));
-  } else if (m === 'tall' || m === 'oven-tower' || m === 'fridge-tower') {
+  } else if (m === 'tall' || m === 'oven-tower' || m === 'fridge-tower' || m === 'freezer-tower') {
     lines.push(<path key="x" d={`M${x0} ${y0}L${-x0} ${-y0}M${-x0} ${y0}L${x0} ${-y0}`} stroke={ink} strokeWidth={0.8} opacity={0.6} {...NS} />);
+    if (m === 'fridge-tower' || m === 'freezer-tower') {
+      // Door swing in front of the column, from the hinge side (as seen from the front).
+      const hinge = itemOptions(item).hinge === 'right' ? -x0 : x0;
+      const free = -hinge;
+      const fy = -y0;
+      lines.push(<line key="leaf" x1={hinge} y1={fy} x2={hinge} y2={fy + w} stroke={stroke} strokeWidth={1.2} {...NS} />);
+      lines.push(
+        <path
+          key="arc"
+          d={`M${hinge} ${fy + w}A${w} ${w} 0 0 ${hinge < 0 ? 0 : 1} ${free} ${fy}`}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={0.8}
+          strokeDasharray="4 3"
+          {...NS}
+        />,
+      );
+    }
   } else if (m === 'hood-wall' || m === 'hood-island') {
     lines.push(<path key="x" d={`M${x0} ${y0}L${-x0} ${-y0}M${-x0} ${y0}L${x0} ${-y0}`} stroke={ink} strokeWidth={0.8} strokeDasharray="4 3" {...NS} />);
     lines.push(<rect key="ch" x={-14} y={m === 'hood-wall' ? y0 : -12} width={28} height={m === 'hood-wall' ? 24 : 24} fill="none" stroke={ink} strokeWidth={0.8} {...NS} />);
@@ -95,6 +114,10 @@ export function PlanSymbol({ item, selected, scale, ghost }: Props) {
     lines.push(<line key="ov" x1={x0} x2={-x0} y1={y0 + over} y2={y0 + over} stroke={ink} strokeWidth={0.8} strokeDasharray="5 3" {...NS} />);
   } else if (m === 'washer' || m === 'dryer') {
     lines.push(circle(0, d * 0.1, Math.min(w, d) * 0.3, 'drum'));
+  } else if (m === 'table-round' || m === 'table-oval') {
+    // Dashed outline of the pedestal foot under the top.
+    const r = Math.max(10, Math.min(w, d) * 0.24);
+    lines.push(<ellipse key="foot" rx={r * Math.min(1.6, Math.max(1, w / d))} ry={r} fill="none" stroke={ink} strokeWidth={0.8} strokeDasharray="3 3" opacity={0.7} {...NS} />);
   } else if (m === 'pendant') {
     lines.push(<path key="x" d={`M${x0} 0L${-x0} 0M0 ${y0}L0 ${-y0}`} stroke={ink} strokeWidth={0.8} {...NS} />);
   } else if (m === 'chair') {
@@ -107,12 +130,12 @@ export function PlanSymbol({ item, selected, scale, ghost }: Props) {
 
   // Front edge marker (shows which way the item faces).
   const frontMarker =
-    m !== 'stool' && m !== 'pendant' && m !== 'table' && m !== 'countertop' && m !== 'shelf' && m !== 'cooktop-induction' && m !== 'cooktop-gas' && m !== 'sink' ? (
+    m !== 'stool' && m !== 'pendant' && m !== 'table' && m !== 'table-round' && m !== 'table-oval' && m !== 'countertop' && m !== 'shelf' && m !== 'cooktop-induction' && m !== 'cooktop-gas' && m !== 'sink' ? (
       <line x1={x0 + 3} x2={-x0 - 3} y1={-y0 - 2.5} y2={-y0 - 2.5} stroke={ink} strokeWidth={1.4} opacity={0.55} {...NS} />
     ) : null;
 
   const shape =
-    m === 'stool' || m === 'pendant' ? (
+    m === 'stool' || m === 'pendant' || m === 'table-round' || m === 'table-oval' ? (
       <ellipse rx={w / 2} ry={d / 2} fill={fill} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} {...NS} />
     ) : (
       <rect x={x0} y={y0} width={w} height={d} rx={m === 'table' ? 4 : m === 'chair' ? 6 : 0.5} fill={fill} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} {...NS} />

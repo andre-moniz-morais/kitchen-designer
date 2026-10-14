@@ -1,4 +1,4 @@
-import type { Item, Room, Vec2 } from './types';
+import type { Item, Opening, Room, Vec2 } from './types';
 
 export const v = (x: number, y: number): Vec2 => ({ x, y });
 export const add = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x + b.x, y: a.y + b.y });
@@ -389,4 +389,19 @@ export function findFreeWallSpot(it: Item, room: Room, items: Item[]): SnapResul
     }
   }
   return null;
+}
+
+/**
+ * Clamp an opening's centre so it stays on its wall. Returns null when it would overlap
+ * another opening on the same wall (with a 5 cm minimum pier between them).
+ */
+export function fitOpening(op: Opening, offset: number, wallIndex: number, wallLength: number, all: Opening[], pier = 5): number | null {
+  const half = op.width / 2;
+  if (wallLength < op.width) return null;
+  const c = clamp(offset, half, wallLength - half);
+  for (const o of all) {
+    if (o.id === op.id || o.wallIndex !== wallIndex) continue;
+    if (Math.abs(o.offset - c) < half + o.width / 2 + pier) return null;
+  }
+  return round1(c);
 }

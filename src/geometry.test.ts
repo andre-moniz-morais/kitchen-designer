@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { clearances, findFreeWallSpot, getWalls, itemBelow, outerPolygon, snapDrawPoint, snapItem, stackElevation } from './geometry';
+import { visibleSlots } from './catalog';
+import { clearances, findFreeWallSpot, fitOpening, getWalls, itemBelow, outerPolygon, snapDrawPoint, snapItem, stackElevation } from './geometry';
 import { createItem, rectRoom } from './store';
 
 const room = rectRoom(400, 300);
@@ -97,5 +98,35 @@ describe('placement helpers', () => {
     const it = createItem('base-60', 100, 30, 0);
     const c = clearances(it, room).map((x) => Math.round(x.d)).sort((p, q) => p - q);
     expect(c).toEqual([70, 240, 270]);
+  });
+});
+
+describe('openings', () => {
+  const base = { kind: 'door' as const, height: 210, elevation: 0, flip: false, swingOut: false };
+  const a = { ...base, id: 'a', wallIndex: 0, offset: 100, width: 80 };
+  const b = { ...base, id: 'b', wallIndex: 0, offset: 300, width: 80 };
+
+  it('keeps an opening inside its wall', () => {
+    expect(fitOpening(a, -50, 0, 400, [a])).toBe(40);
+    expect(fitOpening(a, 999, 0, 400, [a])).toBe(360);
+  });
+
+  it('refuses to overlap another opening on the same wall', () => {
+    expect(fitOpening(a, 250, 0, 400, [a, b])).toBeNull();
+    expect(fitOpening(a, 200, 0, 400, [a, b])).toBe(200);
+    // Other walls don't matter.
+    expect(fitOpening(a, 300, 1, 400, [a, b])).toBe(300);
+  });
+});
+
+describe('item options', () => {
+  it('shows the right material slots for built-in and freestanding dishwashers', () => {
+    expect(visibleSlots({ type: 'dishwasher', options: { builtIn: true } })).toEqual(['front', 'top']);
+    expect(visibleSlots({ type: 'dishwasher', options: { builtIn: false } })).toEqual(['finish']);
+  });
+
+  it('gives the fridge and freezer columns opposite hinges by default', () => {
+    expect(createItem('fridge-tower', 0, 0).options?.hinge).toBe('left');
+    expect(createItem('freezer-tower', 0, 0).options?.hinge).toBe('right');
   });
 });

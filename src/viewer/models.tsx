@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { getEntry } from '../catalog';
+import { getEntry, itemOptions } from '../catalog';
 import type { Item } from '../types';
 import { boxGeometry, color3, M, mat3 } from './materials3d';
 
@@ -43,17 +43,18 @@ const TOP_T = 4;
 const PLINTH = 10;
 
 /** A door or drawer front with an optional bar handle. */
-function Front({ x, y, w, h, z, m, handle = 'v', handlePos = 'tr' }: { x: number; y: number; w: number; h: number; z: number; m: Mat; handle?: 'v' | 'h' | 'none'; handlePos?: 'tr' | 'tl' | 'br' | 'bl' | 'tc' | 'bc' }) {
+function Front({ x, y, w, h, z, m, handle = 'v', handlePos = 'tr', handleLen, handleY }: { x: number; y: number; w: number; h: number; z: number; m: Mat; handle?: 'v' | 'h' | 'none'; handlePos?: 'tr' | 'tl' | 'br' | 'bl' | 'tc' | 'bc'; handleLen?: number; handleY?: number }) {
   const fw = w - GAP * 2;
   const fh = h - GAP * 2;
   let hx = 0;
   let hy = fh / 2;
   const inset = 5;
-  const hl = handle === 'v' ? Math.min(20, fh * 0.4) : Math.min(fw * 0.5, 30);
+  const hl = handleLen ?? (handle === 'v' ? Math.min(20, fh * 0.4) : Math.min(fw * 0.5, 30));
   if (handlePos.includes('r')) hx = fw / 2 - inset;
   if (handlePos.includes('l')) hx = -fw / 2 + inset;
   if (handlePos.startsWith('t')) hy = fh - inset - (handle === 'v' ? hl / 2 : 0);
   if (handlePos.startsWith('b')) hy = inset + (handle === 'v' ? hl / 2 : 0);
+  if (handleY !== undefined) hy = handleY;
   return (
     <group position={[x, y + GAP, z]}>
       <Bx w={fw} h={fh} d={FRONT_T} m={m} z={FRONT_T / 2} />
@@ -208,7 +209,7 @@ function WallUnit({ it, ceilingGap, ceiling }: { it: Item; ceilingGap: number; c
   );
 }
 
-function TallUnit({ it, variant }: { it: Item; variant: 'pantry' | 'oven' | 'fridge' }) {
+function TallUnit({ it, variant }: { it: Item; variant: 'pantry' | 'oven' | 'fridge' | 'freezer' }) {
   const { width: w, depth: d, height: h } = it;
   const front = mat3(it.materials.front);
   const body = mat3(it.materials.body);
@@ -226,10 +227,24 @@ function TallUnit({ it, variant }: { it: Item; variant: 'pantry' | 'oven' | 'fri
           <Front x={0} y={plinth + ch * 0.62} w={w} h={ch * 0.38} z={zf} m={front} handlePos="br" />
         </>
       )}
-      {variant === 'fridge' && (
+      {(variant === 'fridge' || variant === 'freezer') && (
         <>
-          <Front x={0} y={plinth} w={w} h={70} z={zf} m={front} handlePos="tr" />
-          <Front x={0} y={plinth + 70} w={w} h={ch - 70} z={zf} m={front} handlePos="bl" />
+          {/* One full-height door; the handle sits on the side opposite the hinges. */}
+          <Front
+            x={0}
+            y={plinth}
+            w={w}
+            h={ch}
+            z={zf}
+            m={front}
+            handlePos={itemOptions(it).hinge === 'right' ? 'tl' : 'tr'}
+            handleLen={Math.min(60, ch * 0.35)}
+            handleY={Math.min(ch - 10, 100 - plinth)}
+          />
+          {/* Ventilation grille in the plinth, as on real integrated appliances. */}
+          {Array.from({ length: 6 }, (_, i) => (
+            <Bx key={i} w={w - 12} h={0.6} d={0.4} y={2 + i * 1.3} z={d / 2 - 7.8} m={color3("#111214", 0.6)} />
+          ))}
         </>
       )}
       {variant === 'oven' &&
@@ -480,6 +495,9 @@ function Furniture({ it, ceilingGap }: ModelProps) {
           {[-1, 1].map((sx) => [-1, 1].map((sz) => <Bx key={`${sx}${sz}`} x={sx * (w / 2 - 6)} z={sz * (d / 2 - 6)} w={4} h={h - 3.5} d={4} m={body} />))}
         </group>
       );
+    case 'table-round':
+    case 'table-oval':
+      return <PedestalTable it={it} />;
     case 'chair': {
       const seat = h * 0.53;
       return (
@@ -528,6 +546,67 @@ function Furniture({ it, ceilingGap }: ModelProps) {
   }
 }
 
+/** Freestanding dishwasher: its own worktop, control strip and door. */
+function FreestandingDishwasher({ it }: { it: Item }) {
+  const { width: w, depth: d, height: h } = it;
+  const fin = mat3(it.materials.finish ?? 'steel');
+  const panel = 10;
+  return (
+    <group>
+      {[-1, 1].map((sx) => [-1, 1].map((sz) => <Cyl key={`${sx}${sz}`} x={sx * (w / 2 - 4)} z={sz * (d / 2 - 5)} r={1.6} h={1.5} y={0.75} m={M.rubber} seg={10} />))}
+      <Bx w={w - 0.4} h={h - 3.5} d={d - 2} y={1.5} z={-1} m={fin} />
+      <Bx w={w} h={2} d={d} y={h - 2} m={fin} />
+      {/* Door with a recessed grip below the control strip. */}
+      <Bx w={w - 1} h={h - panel - 5} d={1.2} y={2} z={d / 2 - 0.6} m={fin} />
+      <Bx w={w * 0.5} h={1.6} d={0.4} y={h - panel - 5.5} z={d / 2 + 0.1} m={color3('#1b1c1f', 0.5)} />
+      <Bx w={w - 1} h={panel - 1} d={1} y={h - panel - 2} z={d / 2 - 0.5} m={M.blackGlass} />
+      <Bx w={9} h={2.4} d={0.3} x={w * 0.22} y={h - panel + 1.5} z={d / 2 + 0.1} m={M.display} />
+      {[-0.32, -0.22, -0.12].map((bx, i) => (
+        <Cyl key={i} x={bx * w} y={h - panel + 2.7} z={d / 2 + 0.2} r={1} h={0.6} axis="z" m={M.handle} seg={12} />
+      ))}
+    </group>
+  );
+}
+
+/** Round or oval table on a single tapered pedestal (wider at the floor than under the top). */
+function PedestalTable({ it }: { it: Item }) {
+  const { width: w, depth: d, height: h } = it;
+  const top = mat3(it.materials.top);
+  const body = mat3(it.materials.body);
+  const T = 3.5;
+  const topGeo = useMemo(() => {
+    const s = new THREE.Shape();
+    s.absellipse(0, 0, w / 2, d / 2, 0, Math.PI * 2, false, 0);
+    const g = new THREE.ExtrudeGeometry(s, { depth: T - 1, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.5, bevelSegments: 3, curveSegments: 64 });
+    g.rotateX(-Math.PI / 2);
+    return g;
+  }, [w, d]);
+  const small = Math.min(w, d);
+  const rTop = Math.max(4, small * 0.06);
+  const rBottom = Math.max(rTop + 6, small * 0.24);
+  const stemH = h - T - 2;
+  // Oval tables get a pedestal stretched along the long side.
+  const stretch = Math.min(1.6, Math.max(1, w / d));
+  const stemGeo = useMemo(() => {
+    const g = new THREE.CylinderGeometry(rTop, rBottom, stemH, 48, 1);
+    // UVs in cm so wood/stone textures keep their size around the cone.
+    const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * Math.PI * (rTop + rBottom), uv.getY(i) * stemH);
+    return g;
+  }, [rTop, rBottom, stemH]);
+  return (
+    <group>
+      <group scale={[stretch, 1, 1]}>
+        <mesh geometry={stemGeo} material={body} position={[0, stemH / 2, 0]} castShadow receiveShadow />
+        <mesh position={[0, stemH + 1, 0]} material={body} castShadow>
+          <cylinderGeometry args={[rTop * 2.2, rTop * 1.2, 2, 32]} />
+        </mesh>
+      </group>
+      <mesh geometry={topGeo} material={top} position={[0, h - T + 0.5, 0]} castShadow receiveShadow />
+    </group>
+  );
+}
+
 function Island({ it }: { it: Item }) {
   const { width: w, depth: d, height: h } = it;
   const front = mat3(it.materials.front);
@@ -563,7 +642,7 @@ export function ItemModel({ it, ceilingGap }: ModelProps) {
     case 'sink-base':
       return <BaseUnit it={it} kind="sink" />;
     case 'dishwasher':
-      return <BaseUnit it={it} kind="dishwasher" />;
+      return itemOptions(it).builtIn === false ? <FreestandingDishwasher it={it} /> : <BaseUnit it={it} kind="dishwasher" />;
     case 'wall':
       return <WallUnit it={it} ceilingGap={ceilingGap} />;
     case 'ceiling':
@@ -576,11 +655,15 @@ export function ItemModel({ it, ceilingGap }: ModelProps) {
       return <TallUnit it={it} variant="oven" />;
     case 'fridge-tower':
       return <TallUnit it={it} variant="fridge" />;
+    case 'freezer-tower':
+      return <TallUnit it={it} variant="freezer" />;
     case 'island':
       return <Island it={it} />;
     case 'countertop':
       return <Bx w={it.width} h={it.height} d={it.depth} m={mat3(it.materials.top)} grain="h" />;
     case 'table':
+    case 'table-round':
+    case 'table-oval':
     case 'chair':
     case 'stool':
     case 'pendant':
