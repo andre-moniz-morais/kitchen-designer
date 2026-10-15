@@ -1,4 +1,4 @@
-import type { Item, Opening, Room, Vec2 } from './types';
+import type { InteriorWall, Item, Opening, Project, Room, Vec2, Zone } from './types';
 
 export const v = (x: number, y: number): Vec2 => ({ x, y });
 export const add = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x + b.x, y: a.y + b.y });
@@ -208,12 +208,11 @@ export interface SnapResult {
  * Snap a footprint that is being dragged: to the grid, against walls (back to the wall,
  * rotated to face the room, sides flush with neighbouring walls) and against other items.
  */
-export function snapItem(it: Item, room: Room, others: Item[], o: SnapOptions): SnapResult {
+export function snapItem(it: Item, walls: Wall[], others: Item[], o: SnapOptions): SnapResult {
   let x = o.grid > 0 ? snap(it.x, o.grid) : it.x;
   let y = o.grid > 0 ? snap(it.y, o.grid) : it.y;
   let rotation = it.rotation;
   let wallIdx: number | null = null;
-  const walls = room.closed ? getWalls(room) : [];
 
   if (o.snapToWalls && walls.length) {
     let best: { w: Wall; d: number } | null = null;
@@ -302,8 +301,7 @@ export function snapItem(it: Item, room: Room, others: Item[], o: SnapOptions): 
 export const round1 = (n: number) => Math.round(n * 10) / 10;
 
 /** Distances from each side of the item to the nearest wall, measured along the item axes. */
-export function clearances(it: Item, room: Room) {
-  const walls = getWalls(room);
+export function clearances(it: Item, walls: Wall[]) {
   const res: { from: Vec2; to: Vec2; d: number }[] = [];
   const sides: [Vec2, Vec2][] = [
     [v(0, -it.depth / 2), v(0, -1)],
@@ -328,10 +326,10 @@ export function clearances(it: Item, room: Room) {
 export function snapDrawPoint(
   p: Vec2,
   pts: Vec2[],
-  o: { grid: number; ortho: boolean; threshold: number },
+  o: { grid: number; ortho: boolean; threshold: number; close?: boolean },
 ): { point: Vec2; guides: { a: Vec2; b: Vec2 }[]; closing: boolean } {
   const guides: { a: Vec2; b: Vec2 }[] = [];
-  if (pts.length >= 3 && dist(p, pts[0]) < o.threshold * 1.5) return { point: pts[0], guides, closing: true };
+  if (o.close !== false && pts.length >= 3 && dist(p, pts[0]) < o.threshold * 1.5) return { point: pts[0], guides, closing: true };
   let q = o.grid > 0 ? v(snap(p.x, o.grid), snap(p.y, o.grid)) : { ...p };
   const last = pts[pts.length - 1];
   let lockedX = false;
@@ -395,13 +393,283 @@ export function findFreeWallSpot(it: Item, room: Room, items: Item[]): SnapResul
  * Clamp an opening's centre so it stays on its wall. Returns null when it would overlap
  * another opening on the same wall (with a 5 cm minimum pier between them).
  */
-export function fitOpening(op: Opening, offset: number, wallIndex: number, wallLength: number, all: Opening[], pier = 5): number | null {
+export function fitOpening(op: Opening, offset: number, wallKey: string, wallLength: number, all: Opening[], pier = 5): number | null {
   const half = op.width / 2;
   if (wallLength < op.width) return null;
   const c = clamp(offset, half, wallLength - half);
   for (const o of all) {
-    if (o.id === op.id || o.wallIndex !== wallIndex) continue;
+    if (o.id === op.id || hostKey(o) !== wallKey) continue;
     if (Math.abs(o.offset - c) < half + o.width / 2 + pier) return null;
   }
   return round1(c);
+}
+
+/* ------------------------------------------------------------------ */
+/* Interior walls, wall hosts for openings, and room (face) detection */
+/* ------------------------------------------------------------------ */
+
+/** Identifies the wall an opening sits on: "o<index>" for outer walls, the interior wall id otherwise. */
+export const hostKey = (op: Pick<Opening, 'wallIndex' | 'interiorWallId'>) => op.interiorWallId ?? `o${op.wallIndex}`;
+
+/**
+ * A wall that can hold doors and windows. Offsets run along `dir` from `base`; the wall's solid
+ * part spans from `base` (one face) to `base + out * thickness` (the other face).
+ */
+export interface WallHost {
+  key: string;
+  outerIndex?: number;
+  interiorId?: string;
+  /** Reference line: inner face for outer walls, centreline for interior walls. */
+  a: Vec2;
+  b: Vec2;
+  base: Vec2;
+  dir: Vec2;
+  out: Vec2;
+  in: Vec2;
+  length: number;
+  thickness: number;
+  /** Height of the wall; undefined = full room height. */
+  height?: number;
+}
+
+export function interiorHost(w: InteriorWall): WallHost {
+  const dir = norm(sub(w.b, w.a));
+  const out = v(-dir.y, dir.x);
+  return {
+    key: w.id,
+    interiorId: w.id,
+    a: w.a,
+    b: w.b,
+    base: add(w.a, mul(out, -w.thickness / 2)),
+    dir,
+    out,
+    in: mul(out, -1),
+    length: dist(w.a, w.b),
+    thickness: w.thickness,
+    height: w.height,
+  };
+}
+
+export function wallHosts(p: Pick<Project, 'room' | 'interiorWalls'>): WallHost[] {
+  const hosts: WallHost[] = p.room.closed
+    ? getWalls(p.room).map((w) => ({ key: `o${w.index}`, outerIndex: w.index, a: w.a, b: w.b, base: w.a, dir: w.dir, out: w.out, in: w.in, length: w.length, thickness: p.room.wallThickness }))
+    : [];
+  for (const w of p.interiorWalls ?? []) if (dist(w.a, w.b) > 1) hosts.push(interiorHost(w));
+  return hosts;
+}
+
+export function hostOf(op: Opening, hosts: WallHost[]): WallHost | undefined {
+  const k = hostKey(op);
+  return hosts.find((h) => h.key === k);
+}
+
+/** Both faces of an interior wall, as walls whose inward normal points away from the wall. */
+export function interiorFaces(w: InteriorWall, index: number): Wall[] {
+  const h = interiorHost(w);
+  const t = w.thickness / 2;
+  const f1a = add(w.a, mul(h.out, t));
+  const f1b = add(w.b, mul(h.out, t));
+  const f2a = add(w.b, mul(h.in, t));
+  const f2b = add(w.a, mul(h.in, t));
+  const mk = (a: Vec2, b: Vec2, inn: Vec2, idx: number): Wall => {
+    const d = norm(sub(b, a));
+    return { index: idx, a, b, dir: d, in: inn, out: mul(inn, -1), length: dist(a, b), angle: rad2deg(Math.atan2(d.y, d.x)) };
+  };
+  return [mk(f1a, f1b, h.out, 1000 + index * 2), mk(f2a, f2b, h.in, 1001 + index * 2)];
+}
+
+/** Every wall face furniture can be pushed against. */
+export function snapWalls(p: Pick<Project, 'room' | 'interiorWalls'>): Wall[] {
+  const res = p.room.closed ? getWalls(p.room) : [];
+  (p.interiorWalls ?? []).forEach((w, i) => {
+    if (dist(w.a, w.b) > 1) res.push(...interiorFaces(w, i));
+  });
+  return res;
+}
+
+/** Points a new interior wall can attach to: outer corners and interior wall ends. */
+export function wallAnchors(p: Pick<Project, 'room' | 'interiorWalls'>, exclude?: Set<string>): Vec2[] {
+  const pts = [...p.room.points];
+  for (const w of p.interiorWalls ?? []) {
+    if (!exclude?.has(`${w.id}:a`)) pts.push(w.a);
+    if (!exclude?.has(`${w.id}:b`)) pts.push(w.b);
+  }
+  return pts;
+}
+
+/** Lines a new interior wall can end on: outer inner faces and interior centrelines. */
+export function wallLines(p: Pick<Project, 'room' | 'interiorWalls'>, exclude?: Set<string>): { a: Vec2; b: Vec2 }[] {
+  const lines = getWalls(p.room).map((w) => ({ a: w.a, b: w.b }));
+  for (const w of p.interiorWalls ?? []) if (!exclude?.has(w.id)) lines.push({ a: w.a, b: w.b });
+  return lines;
+}
+
+export interface WallSnap {
+  point: Vec2;
+  guides: { a: Vec2; b: Vec2 }[];
+  /** The point lies on an existing wall or corner (a chain of new walls can end here). */
+  onWall: boolean;
+}
+
+/**
+ * Snap a point while drawing interior walls: corners and wall ends first, then a point on an
+ * existing wall (keeping a horizontal/vertical lock if one applies), then grid/ortho/alignment.
+ */
+export function snapWallPoint(
+  p: Vec2,
+  last: Vec2 | undefined,
+  anchors: Vec2[],
+  lines: { a: Vec2; b: Vec2 }[],
+  o: { grid: number; ortho: boolean; threshold: number },
+): WallSnap {
+  if (o.threshold > 0) {
+    let best: Vec2 | null = null;
+    for (const r of anchors) if (dist(p, r) < o.threshold * 1.2 && (!best || dist(p, r) < dist(p, best))) best = r;
+    if (best) return { point: best, guides: [], onWall: true };
+  }
+  const base = snapDrawPoint(p, last ? [...anchors, last] : anchors, { ...o, close: false });
+  if (o.threshold > 0) {
+    const lockH = !!last && Math.abs(base.point.y - last.y) < 1e-6 && o.ortho;
+    const lockV = !!last && Math.abs(base.point.x - last.x) < 1e-6 && o.ortho;
+    let bestD = o.threshold;
+    let hit: Vec2 | null = null;
+    for (const l of lines) {
+      const pr = projectOnSegment(p, l.a, l.b);
+      if (pr.distance >= bestD) continue;
+      // Slide along the wall from the grid-snapped point, so the attach point stays on the grid.
+      let q = projectOnSegment(base.point, l.a, l.b).point;
+      if (dist(q, p) > o.threshold * 2) q = pr.point;
+      // Keep the horizontal/vertical lock by meeting the wall where the locked line crosses it.
+      if ((lockH || lockV) && last) {
+        const axis = lockH ? v(1, 0) : v(0, 1);
+        const along = dot(sub(p, last), axis) >= 0 ? axis : mul(axis, -1);
+        const t = raySegment(last, along, l.a, l.b);
+        if (t !== null) {
+          const cand = add(last, mul(along, t));
+          if (dist(cand, p) < o.threshold * 2) q = cand;
+        }
+      }
+      bestD = pr.distance;
+      hit = q;
+    }
+    if (hit) return { point: v(round1(hit.x), round1(hit.y)), guides: base.guides, onWall: true };
+  }
+  return { point: base.point, guides: base.guides, onWall: false };
+}
+
+/**
+ * Closed spaces formed by the outer outline and the interior walls (by centreline). Each face is
+ * a polygon; dangling walls are allowed. Areas are measured to wall centrelines / inner faces.
+ */
+export function roomFaces(p: Pick<Project, 'room' | 'interiorWalls'>): Vec2[][] {
+  const segs: [Vec2, Vec2][] = [];
+  if (p.room.closed) for (const w of getWalls(p.room)) segs.push([w.a, w.b]);
+  for (const w of p.interiorWalls ?? []) if (dist(w.a, w.b) > 1) segs.push([w.a, w.b]);
+  const tol = 0.6;
+  // 1. Split every segment where others cross or touch it.
+  const pieces: [Vec2, Vec2][] = [];
+  segs.forEach(([a, b], i) => {
+    const r = sub(b, a);
+    const L = len(r);
+    const ts = [0, 1];
+    segs.forEach(([c, d], j) => {
+      if (i === j) return;
+      const s2 = sub(d, c);
+      const den = cross(r, s2);
+      if (Math.abs(den) > 1e-9) {
+        const t = cross(sub(c, a), s2) / den;
+        const u = cross(sub(c, a), r) / den;
+        const eu = tol / Math.max(len(s2), 1e-6);
+        const et = tol / L;
+        if (t >= -et && t <= 1 + et && u >= -eu && u <= 1 + eu) ts.push(clamp(t, 0, 1));
+      }
+      for (const q of [c, d]) {
+        const pr = projectOnSegment(q, a, b);
+        if (pr.distance < tol) ts.push(pr.t);
+      }
+    });
+    ts.sort((x, y) => x - y);
+    const uniq = ts.filter((t, k) => k === 0 || (t - ts[k - 1]) * L > tol);
+    if ((1 - uniq[uniq.length - 1]) * L <= tol) uniq[uniq.length - 1] = 1;
+    for (let k = 0; k + 1 < uniq.length; k++) pieces.push([add(a, mul(r, uniq[k])), add(a, mul(r, uniq[k + 1]))]);
+  });
+  // 2. Merge nearby points into vertices.
+  const verts: Vec2[] = [];
+  const vid = (q: Vec2) => {
+    for (let k = 0; k < verts.length; k++) if (dist(verts[k], q) < tol) return k;
+    verts.push(q);
+    return verts.length - 1;
+  };
+  const adj = new Map<number, Set<number>>();
+  for (const [a, b] of pieces) {
+    const ia = vid(a);
+    const ib = vid(b);
+    if (ia === ib) continue;
+    if (!adj.has(ia)) adj.set(ia, new Set());
+    if (!adj.has(ib)) adj.set(ib, new Set());
+    adj.get(ia)!.add(ib);
+    adj.get(ib)!.add(ia);
+  }
+  // 3. Neighbours sorted by angle; walk faces by always taking the next edge around each vertex.
+  const sorted = new Map<number, number[]>();
+  for (const [k, ns] of adj) {
+    sorted.set(
+      k,
+      [...ns].sort((x, y) => Math.atan2(verts[x].y - verts[k].y, verts[x].x - verts[k].x) - Math.atan2(verts[y].y - verts[k].y, verts[y].x - verts[k].x)),
+    );
+  }
+  const seen = new Set<string>();
+  const faces: Vec2[][] = [];
+  for (const [u, ns] of sorted) {
+    for (const w of ns) {
+      if (seen.has(`${u}>${w}`)) continue;
+      const poly: number[] = [];
+      let a = u;
+      let b = w;
+      for (let guard = 0; guard < 10000; guard++) {
+        seen.add(`${a}>${b}`);
+        poly.push(a);
+        const around = sorted.get(b)!;
+        const idx = around.indexOf(a);
+        const next = around[(idx - 1 + around.length) % around.length];
+        a = b;
+        b = next;
+        if (a === u && b === w) break;
+      }
+      const pts = poly.map((k) => verts[k]);
+      // With this walk, bounded faces have positive signed area (y grows down); the outside is negative.
+      if (polygonArea(pts) > 1) faces.push(pts);
+    }
+  }
+  return faces;
+}
+
+/** The smallest closed space that contains `pt`. */
+export function faceAt(pt: Vec2, faces: Vec2[][]): Vec2[] | null {
+  let best: Vec2[] | null = null;
+  let bestA = Infinity;
+  for (const f of faces) {
+    if (!pointInPolygon(pt, f)) continue;
+    const a = Math.abs(polygonArea(f));
+    if (a < bestA) {
+      bestA = a;
+      best = f;
+    }
+  }
+  return best;
+}
+
+export function zoneArea(z: Zone, faces: Vec2[][]): number | null {
+  const f = faceAt(v(z.x, z.y), faces);
+  return f ? Math.abs(polygonArea(f)) / 10000 : null;
+}
+
+/** Bounds of everything drawn: outer outline and interior walls. */
+export function projectBounds(p: Pick<Project, 'room' | 'interiorWalls'>) {
+  const pts = [...p.room.points];
+  for (const w of p.interiorWalls ?? []) pts.push(w.a, w.b);
+  if (!pts.length) pts.push(v(0, 0), v(400, 300));
+  const xs = pts.map((q) => q.x);
+  const ys = pts.map((q) => q.y);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }

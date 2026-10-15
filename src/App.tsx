@@ -1,5 +1,6 @@
 import {
   Box,
+  BrickWall,
   Camera,
   CircleHelp,
   Copy,
@@ -24,12 +25,12 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { PlanEditor } from './editor/PlanEditor';
-import { fitOpening, getWalls, normAngle, round1 } from './geometry';
-import { emptyProject, exampleProject, rectRoom, useSelectedItem, useStore } from './store';
+import { fitOpening, hostOf, normAngle, round1, wallHosts } from './geometry';
+import { emptyProject, exampleProject, houseExample, rectRoom, useSelectedItem, useStore } from './store';
 import type { Project } from './types';
 import { CatalogPanel } from './ui/CatalogPanel';
 import { IconButton, NumberField, Segmented } from './ui/controls';
-import { DrawToolbar } from './ui/DrawToolbar';
+import { DrawToolbar, WallToolbar } from './ui/DrawToolbar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { RoomPanel } from './ui/RoomPanel';
 import type { Viewer3DHandle } from './viewer/Viewer3D';
@@ -93,9 +94,11 @@ export default function App() {
         s.duplicateSelection();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (s.tool === 'draw') s.setDraft(s.draft.slice(0, -1));
+        else if (s.tool === 'wall') s.setDraft([]);
         else s.deleteSelection();
       } else if (e.key === 'Escape') {
-        if (s.tool === 'draw') s.setTool('select');
+        if (s.tool === 'wall' && s.draft.length) s.setDraft([]);
+        else if (s.tool !== 'select') s.setTool('select');
         else s.select(null);
       } else if (e.key.toLowerCase() === 'r' && !mod && s.selection?.kind === 'item') {
         const it = s.project.items.find((i) => i.id === (s.selection as { id: string }).id);
@@ -104,12 +107,12 @@ export default function App() {
         // Doors and windows slide along their wall.
         e.preventDefault();
         const op = s.project.openings.find((o) => o.id === (s.selection as { id: string }).id);
-        const wall = op && getWalls(s.project.room)[op.wallIndex];
+        const wall = op && hostOf(op, wallHosts(s.project));
         if (!op || !wall) return;
         // Move in the on-screen direction of the key, whichever way the wall runs.
         const sign = Math.abs(wall.dir.x) >= Math.abs(wall.dir.y) ? Math.sign(wall.dir.x) : Math.sign(wall.dir.y);
         const delta = (e.key === 'ArrowRight' ? 1 : -1) * sign * (e.shiftKey ? 10 : 1);
-        const off = fitOpening(op, op.offset + delta, op.wallIndex, wall.length, s.project.openings);
+        const off = fitOpening(op, op.offset + delta, wall.key, wall.length, s.project.openings);
         if (off !== null) s.updateOpening(op.id, { offset: off });
       } else if (e.key.startsWith('Arrow') && s.selection?.kind === 'item') {
         e.preventDefault();
@@ -159,7 +162,7 @@ export default function App() {
         value={leftTab}
         onChange={setLeftTab}
         options={[
-          { value: 'room', label: <><Ruler size={15} /> Divisão</> },
+          { value: 'room', label: <><Ruler size={15} /> Planta</> },
           { value: 'catalog', label: <><Sofa size={15} /> Catálogo</> },
         ]}
       />
@@ -209,8 +212,11 @@ export default function App() {
                   <button type="button" onClick={() => st().setProject(emptyProject(rectRoom(400, 300)))} title="Pode anular com Ctrl+Z">
                     <FilePlus2 size={16} /> Novo projeto
                   </button>
+                  <button type="button" onClick={() => st().setProject(houseExample())}>
+                    <Eye size={16} /> Exemplo: casa completa
+                  </button>
                   <button type="button" onClick={() => st().setProject(exampleProject())}>
-                    <Eye size={16} /> Carregar exemplo
+                    <Eye size={16} /> Exemplo: cozinha
                   </button>
                   <hr />
                   <button type="button" onClick={exportJson}>
@@ -250,6 +256,7 @@ export default function App() {
             </Suspense>
           )}
           {tool === 'draw' && viewMode === '2d' && <DrawToolbar />}
+          {tool === 'wall' && viewMode === '2d' && <WallToolbar />}
 
           <div className="stage-tools">
             {viewMode === '2d' ? (
@@ -263,7 +270,10 @@ export default function App() {
                 <IconButton title="Cotas" active={settings.showDims} onClick={() => st().setSettings({ showDims: !settings.showDims })}>
                   <Ruler size={17} />
                 </IconButton>
-                <IconButton title="Desenhar planta" active={tool === 'draw'} onClick={() => st().setTool(tool === 'draw' ? 'select' : 'draw')}>
+                <IconButton title="Paredes interiores" active={tool === 'wall'} onClick={() => st().setTool(tool === 'wall' ? 'select' : 'wall')}>
+                  <BrickWall size={17} />
+                </IconButton>
+                <IconButton title="Redesenhar o contorno exterior" active={tool === 'draw'} onClick={() => st().setTool(tool === 'draw' ? 'select' : 'draw')}>
                   <PencilRuler size={17} />
                 </IconButton>
               </>
@@ -308,7 +318,7 @@ export default function App() {
           {sheet && (
             <div className="sheet" role="dialog">
               <div className="sheet-head">
-                <strong>{sheet === 'room' ? 'Divisão' : sheet === 'catalog' ? 'Catálogo' : 'Propriedades'}</strong>
+                <strong>{sheet === 'room' ? 'Planta' : sheet === 'catalog' ? 'Catálogo' : 'Propriedades'}</strong>
                 <IconButton title="Fechar" onClick={() => setSheet(null)}>
                   <X size={18} />
                 </IconButton>
@@ -323,7 +333,7 @@ export default function App() {
           <nav className="bottom-nav">
             <button type="button" className={sheet === 'room' ? 'on' : ''} onClick={() => openSheet('room')}>
               <Ruler size={20} />
-              Divisão
+              Planta
             </button>
             <button type="button" className={sheet === 'catalog' ? 'on' : ''} onClick={() => openSheet('catalog')}>
               <Sofa size={20} />
@@ -401,12 +411,12 @@ function Welcome({ help, onClose, onDraw }: { help: boolean; onClose: () => void
         <button type="button" className="modal-close icon-btn" onClick={onClose} aria-label="Fechar">
           <X size={18} />
         </button>
-        <h2>{help ? 'Como usar' : 'Bem-vindo ao planeador de cozinhas'}</h2>
-        <p className="muted">Desenhe a planta com as medidas reais, coloque móveis e eletrodomésticos, escolha os materiais e veja o resultado em 3D.</p>
+        <h2>{help ? 'Como usar' : 'Bem-vindo ao planeador da casa'}</h2>
+        <p className="muted">Desenhe a planta da casa com as medidas reais, divida-a com paredes interiores, mobile cada divisão, escolha os materiais e veja o resultado em 3D.</p>
         {!help && (
           <div className="welcome-options">
             <div className="welcome-card">
-              <h3>1 · Divisão retangular</h3>
+              <h3>1 · Começar por um retângulo</h3>
               <div className="grid2">
                 <NumberField label="Largura" value={w} min={100} max={3000} step={10} onChange={setW} />
                 <NumberField label="Comprimento" value={l} min={100} max={3000} step={10} onChange={setL} />
@@ -423,8 +433,8 @@ function Welcome({ help, onClose, onDraw }: { help: boolean; onClose: () => void
               </button>
             </div>
             <div className="welcome-card">
-              <h3>2 · Desenhar a planta</h3>
-              <p className="muted small">Para divisões com formas irregulares. Marque os cantos com cliques ou escreva as medidas de cada parede.</p>
+              <h3>2 · Desenhar o contorno</h3>
+              <p className="muted small">Para casas ou divisões com formas irregulares. Marque os cantos com cliques ou escreva as medidas de cada parede.</p>
               <button
                 type="button"
                 className="btn block"
@@ -440,17 +450,29 @@ function Welcome({ help, onClose, onDraw }: { help: boolean; onClose: () => void
             </div>
             <div className="welcome-card">
               <h3>3 · Explorar um exemplo</h3>
-              <p className="muted small">Uma cozinha com ilha, móvel suspenso do teto, coluna de forno e eletrodomésticos.</p>
-              <button
-                type="button"
-                className="btn block"
-                onClick={() => {
-                  st().setProject(exampleProject());
-                  onClose();
-                }}
-              >
-                <Eye size={15} /> Ver exemplo
-              </button>
+              <p className="muted small">Uma casa com cozinha, sala, quarto, casa de banho e escritório, ou só uma cozinha completa.</p>
+              <div className="btn-row" style={{ margin: 0 }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    st().setProject(houseExample());
+                    onClose();
+                  }}
+                >
+                  <Eye size={15} /> Casa
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    st().setProject(exampleProject());
+                    onClose();
+                  }}
+                >
+                  <Eye size={15} /> Cozinha
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -460,7 +482,9 @@ function Welcome({ help, onClose, onDraw }: { help: boolean; onClose: () => void
             <ul>
               <li>Arraste móveis do catálogo para a planta. Encostam e rodam automaticamente para a parede mais próxima e alinham com os vizinhos.</li>
               <li>Arraste o fundo para mover a vista; roda do rato ou dois dedos para zoom.</li>
-              <li>Arraste os cantos ou as paredes para ajustar a divisão; o “+” numa parede selecionada cria um novo canto.</li>
+              <li>Arraste os cantos ou as paredes para ajustar o contorno; o “+” numa parede selecionada cria um novo canto.</li>
+              <li>Paredes interiores: botão com tijolos na barra da planta. Comece num ponto de qualquer parede (ou livre) e clique para cada troço.</li>
+              <li>Etiquetas de divisão (catálogo → Divisões) mostram o nome e a área de cada espaço e definem o seu pavimento.</li>
               <li>Linhas tracejadas = elementos em altura (móveis de parede, suspensos, exaustores).</li>
             </ul>
           </div>

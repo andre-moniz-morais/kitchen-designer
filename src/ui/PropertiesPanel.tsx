@@ -1,8 +1,9 @@
 import { ArrowDownToLine, ArrowUpToLine, Copy, FlipHorizontal2, Layers, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
 import { ANCHOR_LABELS, getEntry, itemOptions, SLOT_CATEGORIES, SLOT_LABELS, visibleSlots } from '../catalog';
-import { add, fitOpening, fmtCm, getWalls, itemBelow, mul, normAngle, rotate, round1, stackElevation, v } from '../geometry';
-import { useSelectedItem, useSelectedOpening, useStore } from '../store';
-import { isDoor, type Item, type MaterialSlot, type Opening, type OpeningKind } from '../types';
+import { add, dist, fitOpening, fmtCm, getWalls, hostOf, roomFaces, sub, wallHosts, zoneArea, itemBelow, mul, normAngle, rotate, round1, stackElevation, v } from '../geometry';
+import { endsAt, useSelectedItem, useSelectedOpening, useSelectedWall, useSelectedZone, useStore } from '../store';
+import { ZONE_KINDS } from '../zones';
+import { isDoor, type Item, type MaterialSlot, type Opening, type OpeningKind, type ZoneKind } from '../types';
 import { IconButton, NumberField, Section, Segmented, Toggle } from './controls';
 import { MaterialPicker } from './MaterialPicker';
 
@@ -14,6 +15,8 @@ export function PropertiesPanel() {
   if (opening) return <OpeningProps />;
   if (selection?.kind === 'wall') return <WallProps index={selection.index} />;
   if (selection?.kind === 'vertex') return <VertexProps index={selection.index} />;
+  if (selection?.kind === 'iwall') return <InteriorWallProps />;
+  if (selection?.kind === 'zone') return <ZoneProps />;
   return <EmptyProps />;
 }
 
@@ -27,7 +30,7 @@ function EmptyProps() {
       </p>
       <p className="muted small">Clique num móvel, porta, parede ou canto da planta para editar as suas propriedades.</p>
       <p className="muted small">
-        {items.length} {items.length === 1 ? 'elemento' : 'elementos'} na cozinha.
+        {items.length} {items.length === 1 ? 'elemento' : 'elementos'} na planta.
       </p>
       <ul className="tips">
         <li>Clique duas vezes no mesmo sítio para alternar entre móveis sobrepostos (ex.: móvel de parede sobre um móvel base).</li>
@@ -200,19 +203,19 @@ const OPENING_NAMES: Record<OpeningKind, string> = { door: 'Porta interior', 'do
 function OpeningProps() {
   const op = useSelectedOpening()!;
   const st = useStore.getState;
-  const room = useStore((s) => s.project.room);
-  const openings = useStore((s) => s.project.openings);
-  const wall = getWalls(room)[op.wallIndex];
+  const project = useStore((s) => s.project);
+  const { room, openings } = project;
+  const wall = hostOf(op, wallHosts(project));
   const up = (p: Partial<Opening>) => st().updateOpening(op.id, p);
   const L = wall?.length ?? 0;
   // Keep the opening on its wall when its width or position changes.
   const setWidth = (w: number) => {
     const next = { ...op, width: Math.min(w, L) };
-    const off = fitOpening(next, op.offset, op.wallIndex, L, openings);
+    const off = fitOpening(next, op.offset, wall?.key ?? '', L, openings);
     if (off !== null) up({ width: next.width, offset: off });
   };
   const setOffset = (centre: number) => {
-    const off = fitOpening(op, centre, op.wallIndex, L, openings);
+    const off = fitOpening(op, centre, wall?.key ?? '', L, openings);
     if (off !== null) up({ offset: off });
   };
   const setKind = (k: OpeningKind) => {
@@ -223,7 +226,7 @@ function OpeningProps() {
     <div className="props">
       <div className="props-head">
         <strong className="name-static">{OPENING_NAMES[op.kind]}</strong>
-        <span className="muted small">Parede {op.wallIndex + 1} · arraste ao longo das paredes para mover (ou use as setas ← →)</span>
+        <span className="muted small">{op.interiorWallId ? 'Parede interior' : `Parede ${op.wallIndex + 1}`} · arraste ao longo das paredes para mover (ou use as setas ← →)</span>
         <div className="props-actions">
           <IconButton title="Apagar (Del)" variant="danger" onClick={() => st().deleteSelection()}>
             <Trash2 size={16} />
@@ -365,4 +368,93 @@ export function setWallLength(index: number, length: number) {
     return p;
   });
   st.setRoom({ points: pts });
+}
+
+function InteriorWallProps() {
+  const w = useSelectedWall();
+  const project = useStore((s) => s.project);
+  const st = useStore.getState;
+  if (!w) return <EmptyProps />;
+  const L = dist(w.a, w.b);
+  const H = project.room.wallHeight;
+  const doors = project.openings.filter((o) => o.interiorWallId === w.id).length;
+  // Lengthening moves the end point (and any wall joined to it) along the wall.
+  const setLength = (len: number) => {
+    if (L < 0.1) return;
+    const d = mul(sub(w.b, w.a), 1 / L);
+    const to = v(round1(w.a.x + d.x * len), round1(w.a.y + d.y * len));
+    st().checkpoint();
+    st().moveWallEnds(endsAt(w.b, project.interiorWalls ?? []).map((x) => ({ ...x, to })));
+  };
+  return (
+    <div className="props">
+      <div className="props-head">
+        <strong className="name-static">Parede interior</strong>
+        <span className="muted small">Arraste a parede para a deslocar, ou as pontas para a esticar. Paredes ligadas acompanham.</span>
+        <div className="props-actions">
+          <IconButton title="Apagar parede (Del)" variant="danger" onClick={() => st().deleteSelection()}>
+            <Trash2 size={16} />
+          </IconButton>
+        </div>
+      </div>
+      <Section title="Medidas">
+        <div className="grid2">
+          <NumberField label="Comprimento" value={L} min={5} max={5000} onChange={setLength} />
+          <NumberField label="Espessura" value={w.thickness} min={3} max={60} onChange={(t) => st().updateInteriorWall(w.id, { thickness: t })} />
+        </div>
+        <Toggle
+          label="Até ao teto"
+          checked={w.height === undefined}
+          onChange={(full) => st().updateInteriorWall(w.id, { height: full ? undefined : Math.min(110, H) })}
+          hint="Desligue para uma meia parede, divisória baixa ou muro"
+        />
+        {w.height !== undefined && <NumberField label="Altura da parede" value={w.height} min={10} max={H} step={5} onChange={(h) => st().updateInteriorWall(w.id, { height: h })} />}
+        <p className="muted small">
+          {doors ? `${doors} ${doors === 1 ? 'porta/janela' : 'portas/janelas'} nesta parede. ` : ''}Para pôr uma porta, arraste-a do catálogo para cima desta parede.
+        </p>
+      </Section>
+    </div>
+  );
+}
+
+function ZoneProps() {
+  const z = useSelectedZone();
+  const project = useStore((s) => s.project);
+  const st = useStore.getState;
+  if (!z) return <EmptyProps />;
+  const area = zoneArea(z, roomFaces(project));
+  return (
+    <div className="props">
+      <div className="props-head">
+        <input className="name-input" value={z.name} onChange={(e) => st().updateZone(z.id, { name: e.target.value }, false)} aria-label="Nome da divisão" />
+        <span className="muted small">{area !== null ? `Área: ${area.toFixed(2).replace('.', ',')} m²` : 'A etiqueta não está dentro de um espaço fechado por paredes.'}</span>
+        <div className="props-actions">
+          <IconButton title="Apagar etiqueta (Del)" variant="danger" onClick={() => st().deleteSelection()}>
+            <Trash2 size={16} />
+          </IconButton>
+        </div>
+      </div>
+      <Section title="Tipo de divisão">
+        <select
+          className="select"
+          value={z.kind}
+          onChange={(e) => {
+            const kind = e.target.value as ZoneKind;
+            const wasDefault = z.name === ZONE_KINDS[z.kind].label;
+            st().updateZone(z.id, { kind, ...(wasDefault ? { name: ZONE_KINDS[kind].label } : {}) });
+          }}
+        >
+          {(Object.keys(ZONE_KINDS) as ZoneKind[]).map((k) => (
+            <option key={k} value={k}>
+              {ZONE_KINDS[k].label}
+            </option>
+          ))}
+        </select>
+      </Section>
+      <Section title="Pavimento desta divisão">
+        <MaterialPicker label="Chão" value={z.floorMaterial ?? project.room.floorMaterial} categories={['tile', 'wood', 'stone']} onChange={(m) => st().updateZone(z.id, { floorMaterial: m })} />
+        <p className="muted small">O pavimento ocupa todo o espaço fechado por paredes à volta da etiqueta. Arraste a etiqueta para outra divisão para a mudar.</p>
+      </Section>
+    </div>
+  );
 }

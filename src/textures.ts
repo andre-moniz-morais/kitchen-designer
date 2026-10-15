@@ -257,6 +257,42 @@ export function materialCanvas(m: MaterialDef): HTMLCanvasElement {
       ctx.putImageData(img, 0, 0);
       break;
     }
+    case 'fabric': {
+      // Fine woven texture: warp and weft threads with a little irregularity.
+      const n = makeNoise(rand, 64);
+      const threads = 96;
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const i = (y * SIZE + x) * 4;
+          const u = x / SIZE;
+          const vv = y / SIZE;
+          const warp = Math.abs(Math.sin(u * threads * Math.PI));
+          const weft = Math.abs(Math.sin(vv * threads * Math.PI));
+          const over = (Math.floor(u * threads) + Math.floor(vv * threads)) % 2 === 0 ? warp : weft;
+          const t = (1 - over) * 0.55 + n(u * 64, vv * 64) * 0.35;
+          put(i, mix(base, acc[0] ?? base, Math.min(1, t)));
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      break;
+    }
+    case 'leather': {
+      const n = makeNoise(rand, 48);
+      const n2 = makeNoise(rand, 160);
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          const i = (y * SIZE + x) * 4;
+          const u = x / SIZE;
+          const vv = y / SIZE;
+          // Pebbled grain: cells from thresholded noise plus soft mottling.
+          const cell = Math.pow(n2(u * 160, vv * 160), 3);
+          const t = n(u * 48, vv * 48) * 0.45 + cell * 0.5;
+          put(i, mix(acc[0] ?? base, acc[1] ?? base, t));
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      break;
+    }
     case 'brushed': {
       const n1 = makeNoise(rand, 256, 6);
       const n2 = makeNoise(rand, 512, 12);
