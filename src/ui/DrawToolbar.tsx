@@ -98,3 +98,99 @@ export function DrawToolbar() {
     </div>
   );
 }
+
+/** Floating toolbar shown while drawing interior walls. */
+export function WallToolbar() {
+  const draft = useStore((s) => s.draft);
+  const thickness = useStore((s) => s.settings.iwallThickness ?? 10);
+  const st = useStore.getState;
+  const [len, setLen] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const start = draft[draft.length - 1];
+
+  const addDir = (dir: Vec2) => {
+    const n = parseFloat(len.replace(',', '.'));
+    if (!start || !Number.isFinite(n) || n <= 0) {
+      inputRef.current?.focus();
+      return;
+    }
+    const p = add(start, mul(dir, n));
+    const end = v(Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10);
+    st().addInteriorWall(start, end);
+    st().setDraft([end]);
+    setLen('');
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
+      if (/^[0-9]$/.test(e.key) && start) inputRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const msg = !start
+    ? 'Clique num canto, numa parede ou em qualquer ponto para começar uma parede interior.'
+    : 'Clique para o fim da parede. Ao tocar noutra parede, a parede termina; noutro sítio, continua a partir daí.';
+
+  return (
+    <div className="draw-bar">
+      <p className="draw-msg">{msg}</p>
+      <div className="draw-controls">
+        <label className="draw-len" title="Espessura das paredes novas">
+          <span>Espessura</span>
+          <input
+            inputMode="decimal"
+            value={thickness}
+            onChange={(e) => {
+              const n = parseFloat(e.target.value.replace(',', '.'));
+              if (Number.isFinite(n) && n > 0 && n <= 60) st().setSettings({ iwallThickness: n });
+            }}
+            style={{ width: 36 }}
+          />
+          <span>cm</span>
+        </label>
+        <label className="draw-len">
+          <input
+            ref={inputRef}
+            inputMode="decimal"
+            placeholder="Comprimento"
+            value={len}
+            disabled={!start}
+            onChange={(e) => setLen(e.target.value.replace(/[^0-9.,]/g, ''))}
+            onKeyDown={(e) => {
+              const dirs: Record<string, Vec2> = { ArrowRight: v(1, 0), ArrowLeft: v(-1, 0), ArrowUp: v(0, -1), ArrowDown: v(0, 1) };
+              if (dirs[e.key]) {
+                e.preventDefault();
+                addDir(dirs[e.key]);
+              }
+              if (e.key === 'Escape') (e.target as HTMLInputElement).blur();
+            }}
+          />
+          <span>cm</span>
+        </label>
+        <div className="dir-pad" title="Desenhar a parede nesta direção (ou use as setas do teclado)">
+          <button type="button" onClick={() => addDir(v(-1, 0))} aria-label="Esquerda" disabled={!start}>
+            <ArrowLeft size={16} />
+          </button>
+          <button type="button" onClick={() => addDir(v(0, -1))} aria-label="Cima" disabled={!start}>
+            <ArrowUp size={16} />
+          </button>
+          <button type="button" onClick={() => addDir(v(0, 1))} aria-label="Baixo" disabled={!start}>
+            <ArrowDown size={16} />
+          </button>
+          <button type="button" onClick={() => addDir(v(1, 0))} aria-label="Direita" disabled={!start}>
+            <ArrowRight size={16} />
+          </button>
+        </div>
+        <button type="button" className="btn" onClick={() => st().setDraft([])} disabled={!start}>
+          <Check size={15} /> <span className="hide-sm">Terminar parede</span>
+        </button>
+        <button type="button" className="btn ghost" onClick={() => st().setTool('select')} aria-label="Sair do desenho de paredes">
+          <X size={15} /> <span className="hide-sm">Sair</span>
+        </button>
+      </div>
+    </div>
+  );
+}

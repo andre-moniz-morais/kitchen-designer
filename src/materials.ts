@@ -1,4 +1,4 @@
-export type MaterialCategory = 'wood' | 'stone' | 'solid' | 'metal' | 'tile';
+export type MaterialCategory = 'wood' | 'stone' | 'solid' | 'metal' | 'tile' | 'fabric';
 export type Pattern =
   | 'wood'
   | 'marble'
@@ -11,7 +11,9 @@ export type Pattern =
   | 'brushed'
   | 'tiles'
   | 'herringbone'
-  | 'planks';
+  | 'planks'
+  | 'fabric'
+  | 'leather';
 
 export interface MaterialDef {
   id: string;
@@ -35,7 +37,19 @@ export const CATEGORY_LABELS: Record<MaterialCategory, string> = {
   solid: 'Lacados & cores',
   metal: 'Metais',
   tile: 'Pavimentos',
+  fabric: 'Tecidos e peles',
 };
+
+const fabric = (id: string, name: string, color: string, accent: string, roughness = 0.95, scale = 0.15): MaterialDef => ({
+  id,
+  name,
+  category: 'fabric',
+  pattern: 'fabric',
+  color,
+  accents: [accent],
+  roughness,
+  scale,
+});
 
 const wood = (id: string, name: string, color: string, grain: string, light: string, roughness = 0.6): MaterialDef => ({
   id,
@@ -158,6 +172,20 @@ export const MATERIALS: MaterialDef[] = [
   { id: 'aluminium', name: 'Alumínio', category: 'metal', pattern: 'brushed', color: '#b5b8bb', accents: ['#a0a3a6', '#c8cbce'], roughness: 0.4, metalness: 0.9, scale: 0.5 },
   { id: 'enamel-white', name: 'Esmalte branco', category: 'metal', pattern: 'solid', color: '#f3f3f1', roughness: 0.25 },
   { id: 'enamel-black', name: 'Vidro preto', category: 'metal', pattern: 'solid', color: '#111214', roughness: 0.08 },
+  // Tecidos e peles
+  fabric('linen-natural', 'Linho natural', '#cbbfa8', '#b3a68d'),
+  fabric('linen-grey', 'Linho cinza', '#a9a7a2', '#918f8a'),
+  fabric('linen-white', 'Linho branco', '#efede7', '#dedbd3'),
+  fabric('boucle', 'Bouclé creme', '#e9e2d4', '#d2c8b5', 0.98, 0.08),
+  fabric('wool-charcoal', 'Lã antracite', '#4a4c50', '#393b3f'),
+  fabric('velvet-green', 'Veludo verde', '#3f5a48', '#2f4537', 0.7),
+  fabric('velvet-blue', 'Veludo azul', '#2e4466', '#22334f', 0.7),
+  fabric('velvet-rust', 'Veludo ferrugem', '#9a4e2e', '#7a3b21', 0.7),
+  fabric('fabric-mustard', 'Tecido mostarda', '#c49a3a', '#a8822c'),
+  fabric('fabric-blush', 'Tecido rosa velho', '#d6b0a6', '#bf968b'),
+  { id: 'leather-cognac', name: 'Pele conhaque', category: 'fabric', pattern: 'leather', color: '#8e4f2a', accents: ['#6f3b1d', '#a8653b'], roughness: 0.55, scale: 0.4 },
+  { id: 'leather-black', name: 'Pele preta', category: 'fabric', pattern: 'leather', color: '#202022', accents: ['#151517', '#2e2e31'], roughness: 0.5, scale: 0.4 },
+  { id: 'leather-white', name: 'Pele branca', category: 'fabric', pattern: 'leather', color: '#ebe8e2', accents: ['#d8d4cc', '#f5f3ef'], roughness: 0.55, scale: 0.4 },
   // Pavimentos
   { id: 'floor-oak-planks', name: 'Soalho carvalho', category: 'tile', pattern: 'planks', color: '#b98d62', accents: ['#93683f', '#d2a983'], roughness: 0.6, scale: 2 },
   { id: 'floor-oak-light', name: 'Soalho carvalho claro', category: 'tile', pattern: 'planks', color: '#d6bc98', accents: ['#b99d77', '#e6d3b6'], roughness: 0.6, scale: 2 },

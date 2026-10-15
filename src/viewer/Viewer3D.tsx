@@ -4,11 +4,13 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'rea
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-import { deg2rad, getWalls, miter, outerPolygon, roomBounds, type Wall } from '../geometry';
+import { deg2rad, dist, faceAt, getWalls, interiorHost, miter, outerPolygon, projectBounds, roomFaces } from '../geometry';
 import { useStore } from '../store';
-import type { Item, Opening, Room } from '../types';
+import type { Item, Opening, Room, Vec2 } from '../types';
 import { color3, M, mat3 } from './materials3d';
 import { ItemModel } from './models';
+import { HouseModel, isHouseModel } from './houseModels';
+import { getEntry } from '../catalog';
 
 const S = 0.01; // cm → m
 
@@ -60,7 +62,7 @@ function Scene({ viewApi }: { viewApi: React.MutableRefObject<(v: 'perspective' 
   const selection = useStore((s) => s.selection);
   const wallsMode = useStore((s) => s.settings.wallsMode);
   const { room, items, openings } = project;
-  const b = roomBounds(room);
+  const b = projectBounds(project);
   const cx = ((b.minX + b.maxX) / 2) * S;
   const cz = ((b.minY + b.maxY) / 2) * S;
   const span = Math.max(b.maxX - b.minX, b.maxY - b.minY, 200) * S;
@@ -120,7 +122,9 @@ function Scene({ viewApi }: { viewApi: React.MutableRefObject<(v: 'perspective' 
 
       <group scale={S}>
         {room.closed && room.points.length >= 3 && <Floor room={room} />}
+        <ZoneFloors />
         <Walls room={room} openings={openings} mode={wallsMode} />
+        <InteriorWalls room={room} openings={openings} mode={wallsMode} />
         {items.map((it) => (
           <ItemNode key={it.id} it={it} selected={selection?.kind === 'item' && selection.id === it.id} ceiling={H} />
         ))}
@@ -172,7 +176,7 @@ function ItemNode({ it, selected, ceiling }: { it: Item; selected: boolean; ceil
         useStore.getState().select({ kind: 'item', id: it.id });
       }}
     >
-      <ItemModel it={it} ceilingGap={ceilingGap} />
+      {isHouseModel(getEntry(it.type).model) ? <HouseModel it={it} /> : <ItemModel it={it} ceilingGap={ceilingGap} />}
       {edges && (
         <lineSegments geometry={edges} position={[0, it.height / 2, 0]}>
           <lineBasicMaterial color="#d4683a" depthTest={false} transparent opacity={0.9} />
@@ -247,7 +251,16 @@ function Walls({ room, openings, mode }: { room: Room; openings: Opening[]; mode
     <group>
       {walls.map((w, i) => (
         <group key={i} ref={(g) => (groups.current[i] = g)}>
-          <WallMesh w={w} t={room.wallThickness} h={H} openings={mode === 'low' ? [] : openings.filter((o) => o.wallIndex === i)} mat={wallMat} />
+          <WallMesh
+            base={w.a}
+            dir={w.dir}
+            out={w.out}
+            length={w.length}
+            t={room.wallThickness}
+            h={H}
+            openings={mode === 'low' ? [] : openings.filter((o) => !o.interiorWallId && o.wallIndex === i)}
+            mat={wallMat}
+          />
         </group>
       ))}
       {pillarGeos.map((g, i) => g && <mesh key={i} ref={(m) => (pillars.current[i] = m)} geometry={g} material={wallMat} castShadow receiveShadow />)}
@@ -255,16 +268,93 @@ function Walls({ room, openings, mode }: { room: Room; openings: Opening[]; mode
   );
 }
 
-function WallMesh({ w, t, h, openings, mat }: { w: Wall; t: number; h: number; openings: Opening[]; mat: THREE.Material }) {
-  // Choose the wall's local frame so it is right-handed: u along the wall, v up, extrusion outwards.
-  const flip = w.dir.x * w.out.y - w.out.x * w.dir.y < 0;
+/** Interior walls: centred on their line, full height unless set lower, with their own doors and windows. */
+function InteriorWalls({ room, openings, mode }: { room: Room; openings: Opening[]; mode: 'auto' | 'full' | 'low' }) {
+  const iwalls = useStore((s) => s.project.interiorWalls) ?? [];
+  const wallMat = useMemo(() => color3(room.wallColor, 0.92), [room.wallColor]);
+  return (
+    <group>
+      {iwalls.map((w) => {
+        if (dist(w.a, w.b) < 1) return null;
+        const hst = interiorHost(w);
+        const full = Math.min(room.wallHeight, w.height ?? room.wallHeight);
+        const h = mode === 'low' ? Math.min(30, full) : full;
+        return (
+          <WallMesh
+            key={w.id}
+            base={hst.base}
+            dir={hst.dir}
+            out={hst.out}
+            length={hst.length}
+            t={w.thickness}
+            h={h}
+            ext={w.thickness / 2}
+            openings={mode === 'low' ? [] : openings.filter((o) => o.interiorWallId === w.id)}
+            mat={wallMat}
+          />
+        );
+      })}
+    </group>
+  );
+}
+
+/** Each labelled room gets its own floor, laid over the main floor inside the walls around the label. */
+function ZoneFloors() {
+  const room = useStore((s) => s.project.room);
+  const iwalls = useStore((s) => s.project.interiorWalls);
+  const zones = useStore((s) => s.project.zones) ?? [];
+  const faces = useMemo(() => roomFaces({ room, interiorWalls: iwalls }), [room, iwalls]);
+  return (
+    <group>
+      {zones.map((z) => {
+        const f = z.floorMaterial ? faceAt({ x: z.x, y: z.y }, faces) : null;
+        return f ? <ZoneFloor key={z.id} pts={f} material={z.floorMaterial!} /> : null;
+      })}
+    </group>
+  );
+}
+
+function ZoneFloor({ pts, material }: { pts: { x: number; y: number }[]; material: string }) {
   const geo = useMemo(() => {
-    const L = w.length;
+    const g = new THREE.ShapeGeometry(new THREE.Shape(pts.map((p) => new THREE.Vector2(p.x, -p.y))));
+    g.rotateX(-Math.PI / 2);
+    const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setY(i, -uv.getY(i));
+    return g;
+  }, [pts]);
+  return <mesh geometry={geo} material={mat3(material)} position={[0, 0.4, 0]} receiveShadow />;
+}
+
+function WallMesh({
+  base,
+  dir,
+  out,
+  length: L,
+  t,
+  h,
+  openings,
+  mat,
+  ext = 0,
+}: {
+  base: Vec2;
+  dir: Vec2;
+  out: Vec2;
+  length: number;
+  t: number;
+  h: number;
+  openings: Opening[];
+  mat: THREE.Material;
+  /** Extra length at both ends (interior walls overlap their neighbours so corners close). */
+  ext?: number;
+}) {
+  // Choose the wall's local frame so it is right-handed: u along the wall, v up, extrusion outwards.
+  const flip = dir.x * out.y - out.x * dir.y < 0;
+  const geo = useMemo(() => {
     const s = new THREE.Shape();
-    s.moveTo(0, 0);
-    s.lineTo(L, 0);
-    s.lineTo(L, h);
-    s.lineTo(0, h);
+    s.moveTo(-ext, 0);
+    s.lineTo(L + ext, 0);
+    s.lineTo(L + ext, h);
+    s.lineTo(-ext, h);
     s.closePath();
     for (const o of openings) {
       const c = flip ? L - o.offset : o.offset;
@@ -282,23 +372,23 @@ function WallMesh({ w, t, h, openings, mat }: { w: Wall; t: number; h: number; o
       s.holes.push(hole);
     }
     return new THREE.ExtrudeGeometry(s, { depth: t, bevelEnabled: false, curveSegments: 1 });
-  }, [w.length, h, t, openings, flip]);
+  }, [L, h, t, openings, flip, ext]);
 
-  const start = flip ? w.b : w.a;
-  const d = flip ? { x: -w.dir.x, y: -w.dir.y } : w.dir;
+  const start = flip ? { x: base.x + dir.x * L, y: base.y + dir.y * L } : base;
+  const d = flip ? { x: -dir.x, y: -dir.y } : dir;
   // Basis: X = wall dir (plan x,y → world x,z), Y = up, Z = outward normal.
   const matrix = useMemo(() => {
     const m = new THREE.Matrix4();
-    m.makeBasis(new THREE.Vector3(d.x, 0, d.y), new THREE.Vector3(0, 1, 0), new THREE.Vector3(w.out.x, 0, w.out.y));
+    m.makeBasis(new THREE.Vector3(d.x, 0, d.y), new THREE.Vector3(0, 1, 0), new THREE.Vector3(out.x, 0, out.y));
     m.setPosition(start.x, 0, start.y);
     return m;
-  }, [d.x, d.y, w.out.x, w.out.y, start.x, start.y]);
+  }, [d.x, d.y, out.x, out.y, start.x, start.y]);
 
   return (
     <group matrix={matrix} matrixAutoUpdate={false}>
       <mesh geometry={geo} material={mat} castShadow receiveShadow />
       {openings.map((o) => (
-        <OpeningModel key={o.id} o={o} L={w.length} t={t} flip={flip} wallH={h} />
+        <OpeningModel key={o.id} o={o} L={L} t={t} flip={flip} wallH={h} />
       ))}
     </group>
   );

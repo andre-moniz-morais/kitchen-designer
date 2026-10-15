@@ -21,13 +21,13 @@ interface BxProps {
 }
 
 /** A box positioned by its bottom centre, with real-size UVs. */
-function Bx({ x = 0, y = 0, z = 0, w, h, d, m, grain = 'v', rx, shadow = true }: BxProps) {
+export function Bx({ x = 0, y = 0, z = 0, w, h, d, m, grain = 'v', rx, shadow = true }: BxProps) {
   const geo = useMemo(() => boxGeometry(Math.max(w, 0.01), Math.max(h, 0.01), Math.max(d, 0.01), grain), [w, h, d, grain]);
   if (w <= 0 || h <= 0 || d <= 0) return null;
   return <mesh geometry={geo} material={m} position={[x, y + h / 2, z]} rotation={rx ? [rx, 0, 0] : undefined} castShadow={shadow} receiveShadow />;
 }
 
-function Cyl({ x = 0, y = 0, z = 0, r, r2, h, m, seg = 24, axis = 'y', open }: { x?: number; y?: number; z?: number; r: number; r2?: number; h: number; m: Mat; seg?: number; axis?: 'x' | 'y' | 'z'; open?: boolean }) {
+export function Cyl({ x = 0, y = 0, z = 0, r, r2, h, m, seg = 24, axis = 'y', open }: { x?: number; y?: number; z?: number; r: number; r2?: number; h: number; m: Mat; seg?: number; axis?: 'x' | 'y' | 'z'; open?: boolean }) {
   const rot: [number, number, number] = axis === 'x' ? [0, 0, Math.PI / 2] : axis === 'z' ? [Math.PI / 2, 0, 0] : [0, 0, 0];
   return (
     <mesh position={[x, y, z]} rotation={rot} castShadow receiveShadow>
@@ -38,12 +38,12 @@ function Cyl({ x = 0, y = 0, z = 0, r, r2, h, m, seg = 24, axis = 'y', open }: {
 }
 
 const GAP = 0.3;
-const FRONT_T = 1.8;
+export const FRONT_T = 1.8;
 const TOP_T = 4;
 const PLINTH = 10;
 
 /** A door or drawer front with an optional bar handle. */
-function Front({ x, y, w, h, z, m, handle = 'v', handlePos = 'tr', handleLen, handleY }: { x: number; y: number; w: number; h: number; z: number; m: Mat; handle?: 'v' | 'h' | 'none'; handlePos?: 'tr' | 'tl' | 'br' | 'bl' | 'tc' | 'bc'; handleLen?: number; handleY?: number }) {
+export function Front({ x, y, w, h, z, m, handle = 'v', handlePos = 'tr', handleLen, handleY }: { x: number; y: number; w: number; h: number; z: number; m: Mat; handle?: 'v' | 'h' | 'none'; handlePos?: 'tr' | 'tl' | 'br' | 'bl' | 'tc' | 'bc'; handleLen?: number; handleY?: number }) {
   const fw = w - GAP * 2;
   const fh = h - GAP * 2;
   let hx = 0;
@@ -537,7 +537,7 @@ function Furniture({ it, ceilingGap }: ModelProps) {
             <sphereGeometry args={[4, 16, 12]} />
             <primitive object={M.bulb} attach="material" />
           </mesh>
-          <pointLight position={[0, -2, 0]} intensity={2500} distance={260} decay={2} color="#ffe2b0" />
+          <pointLight position={[0, -2, 0]} intensity={3} distance={4} decay={2} color="#ffe2b0" />
         </group>
       );
     }

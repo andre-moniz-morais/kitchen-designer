@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getEntry } from './catalog';
-import { fitOpening, getWalls, roomCenter, stackElevation, v } from './geometry';
-import type { Item, Opening, Project, Room, Selection, Tool, Vec2, ViewMode } from './types';
+import { dist, fitOpening, projectOnSegment, roomCenter, stackElevation, v, wallHosts } from './geometry';
+import type { InteriorWall, Item, Opening, Project, Room, Selection, Tool, Vec2, ViewMode, Zone } from './types';
+import { ZONE_KINDS } from './zones';
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -82,11 +83,103 @@ export function exampleProject(): Project {
     { id: uid(), kind: 'window', wallIndex: 0, offset: 225, width: 100, height: 70, elevation: 150, flip: false, swingOut: false },
     { id: uid(), kind: 'door', wallIndex: 3, offset: 90, width: 80, height: 210, elevation: 0, flip: false, swingOut: false },
   ];
-  return { version: 1, name: 'Cozinha exemplo', room, items, openings };
+  return { version: 1, name: 'Cozinha exemplo', room, items, openings, interiorWalls: [], zones: [] };
+}
+
+/** A small single-storey house: kitchen, living room, hall, bedroom, bathroom and office. */
+export function houseExample(): Project {
+  const room = rectRoom(1000, 800, { floorMaterial: 'floor-oak-planks' });
+  const wall = (a: [number, number], b: [number, number]): InteriorWall => ({ id: uid(), a: v(a[0], a[1]), b: v(b[0], b[1]), thickness: 10 });
+  const wKitchen = wall([420, 0], [420, 420]);
+  const wTop = wall([0, 420], [1000, 420]);
+  const wBottom = wall([0, 540], [1000, 540]);
+  const wBed = wall([380, 540], [380, 800]);
+  const wBath = wall([600, 540], [600, 800]);
+  const interiorWalls = [wKitchen, wTop, wBottom, wBed, wBath];
+  const op = (kind: Opening['kind'], at: { outer?: number; inner?: string }, offset: number, width: number, height: number, elevation = 0, extra: Partial<Opening> = {}): Opening => ({
+    id: uid(),
+    kind,
+    wallIndex: at.outer ?? 0,
+    ...(at.inner ? { interiorWallId: at.inner } : {}),
+    offset,
+    width,
+    height,
+    elevation,
+    flip: false,
+    swingOut: false,
+    ...extra,
+  });
+  const openings: Opening[] = [
+    op('window', { outer: 0 }, 225, 100, 70, 150),
+    op('window', { outer: 0 }, 710, 220, 220, 0),
+    op('door-ext', { outer: 1 }, 480, 100, 215),
+    op('window', { outer: 2 }, 810, 140, 120, 95),
+    op('window', { outer: 2 }, 510, 60, 60, 150),
+    op('window', { outer: 2 }, 200, 140, 120, 95),
+    op('door', { inner: wTop.id }, 300, 80, 210),
+    op('passage', { inner: wTop.id }, 710, 160, 210),
+    op('door', { inner: wBottom.id }, 190, 80, 210, 0, { flip: true }),
+    op('door', { inner: wBottom.id }, 490, 70, 210),
+    op('door', { inner: wBottom.id }, 800, 80, 210, 0, { flip: true }),
+  ];
+  const zone = (kind: Zone['kind'], x: number, y: number): Zone => ({ id: uid(), kind, name: ZONE_KINDS[kind].label, x, y, floorMaterial: ZONE_KINDS[kind].floor });
+  const zones = [zone('kitchen', 270, 330), zone('living', 640, 170), zone('hall', 300, 480), zone('bedroom', 290, 600), zone('bathroom', 490, 720), zone('office', 700, 600)];
+  const top = (type: string, left: number, patch: Partial<Item> = {}) => {
+    const e = getEntry(type);
+    return createItem(type, left + (patch.width ?? e.width) / 2, (patch.depth ?? e.depth) / 2, 0, patch);
+  };
+  const items: Item[] = [
+    // Kitchen (0–415 × 0–415)
+    top('fridge-tower', 0, { materials: { front: 'sage', body: 'white-matt' } }),
+    top('oven-tower', 60, { materials: { front: 'sage', body: 'white-matt', finish: 'steel' } }),
+    top('base-60', 120, { materials: { front: 'sage', body: 'white-matt', top: 'calacatta' } }),
+    top('sink-base-90', 180, { materials: { front: 'sage', body: 'white-matt', top: 'calacatta', finish: 'steel' } }),
+    top('dishwasher', 270, { materials: { front: 'sage', top: 'calacatta', finish: 'steel' } }),
+    top('drawers-60', 330, { materials: { front: 'sage', body: 'white-matt', top: 'calacatta' } }),
+    createItem('cooktop-induction', 360, 30, 0),
+    top('hood-wall', 315, { elevation: 155 }),
+    top('base-60', 390, { width: 25, materials: { front: 'sage', body: 'white-matt', top: 'calacatta' } }),
+    createItem('island-180', 210, 280, 180, { width: 160, materials: { front: 'oak-natural', body: 'white-matt', top: 'calacatta' } }),
+    createItem('stool', 165, 345, 180),
+    createItem('stool', 255, 345, 180),
+    // Living room (425–1000 × 0–415)
+    createItem('rug', 800, 210, 90, { width: 200, depth: 260 }),
+    createItem('sofa-3', 700, 210, 270),
+    createItem('coffee-table', 820, 210, 90),
+    createItem('tv-unit', 979, 210, 90),
+    createItem('tv', 979, 210, 90, { elevation: 50 }),
+    createItem('armchair', 820, 345, 0),
+    createItem('floor-lamp', 690, 80, 0),
+    createItem('table-round', 530, 300, 0),
+    createItem('chair', 530, 240, 0),
+    createItem('chair', 530, 360, 180),
+    createItem('plant', 470, 380, 0),
+    // Hall (0–1000 × 425–535)
+    createItem('plant-small', 960, 515, 0),
+    // Bedroom (0–375 × 545–800)
+    createItem('bed-160', 106, 672.5, 270),
+    createItem('nightstand', 20, 567.5, 270),
+    createItem('nightstand', 20, 777.5, 270),
+    createItem('wardrobe-3', 290, 770, 180),
+    createItem('rug-small', 250, 660, 90, { width: 120, depth: 180 }),
+    // Bathroom (385–595 × 545–800)
+    createItem('toilet', 425, 766, 180),
+    createItem('vanity', 525, 777, 180),
+    createItem('mirror', 525, 798.5, 180, { elevation: 120 }),
+    createItem('shower', 550, 590, 0),
+    createItem('towel-rail', 390, 640, 90),
+    // Office (605–1000 × 545–800)
+    createItem('desk', 800, 765, 180),
+    createItem('office-chair', 800, 700, 180),
+    createItem('monitor', 800, 785, 180, { elevation: 75 }),
+    createItem('bookcase', 982.5, 640, 90),
+    createItem('plant', 640, 770, 0),
+  ];
+  return { version: 1, name: 'Casa exemplo', room, items, openings, interiorWalls, zones };
 }
 
 export function emptyProject(room?: Room): Project {
-  return { version: 1, name: 'A minha cozinha', room: room ?? rectRoom(400, 300), items: [], openings: [] };
+  return { version: 1, name: 'A minha casa', room: room ?? rectRoom(400, 300), items: [], openings: [], interiorWalls: [], zones: [] };
 }
 
 export interface Settings {
@@ -95,7 +188,11 @@ export interface Settings {
   ortho: boolean;
   showDims: boolean;
   wallsMode: 'auto' | 'full' | 'low';
+  /** Thickness for new interior walls, cm. */
+  iwallThickness: number;
 }
+
+const DEFAULT_SETTINGS: Settings = { grid: 5, snap: true, ortho: true, showDims: true, wallsMode: 'auto', iwallThickness: 10 };
 
 interface State {
   project: Project;
@@ -130,6 +227,11 @@ interface State {
   deleteSelection: () => void;
   duplicateSelection: () => void;
   applyMaterialToAll: (slot: string, material: string) => void;
+  addInteriorWall: (a: Vec2, b: Vec2) => string;
+  updateInteriorWall: (id: string, patch: Partial<InteriorWall>, record?: boolean) => void;
+  /** Move wall ends (several at once, so connected walls stay joined). */
+  moveWallEnds: (moves: { id: string; end: 'a' | 'b'; to: Vec2 }[], record?: boolean) => void;
+  updateZone: (id: string, patch: Partial<Zone>, record?: boolean) => void;
 }
 
 const MAX_HISTORY = 120;
@@ -137,14 +239,14 @@ const MAX_HISTORY = 120;
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
-      project: exampleProject(),
+      project: houseExample(),
       past: [],
       future: [],
       selection: null,
       viewMode: '2d',
       tool: 'select',
       draft: [],
-      settings: { grid: 5, snap: true, ortho: true, showDims: true, wallsMode: 'auto' },
+      settings: DEFAULT_SETTINGS,
       welcomed: false,
       fitToken: 0,
 
@@ -181,35 +283,42 @@ export const useStore = create<State>()(
       addItem: (type, at) => {
         const e = getEntry(type);
         const { project } = get();
+        if (e.zone) {
+          const c = at ?? roomCenter(project.room);
+          const z: Zone = { id: uid(), kind: e.zone, name: ZONE_KINDS[e.zone].label, x: Math.round(c.x), y: Math.round(c.y), floorMaterial: ZONE_KINDS[e.zone].floor };
+          get().mutate((p) => ({ ...p, zones: [...(p.zones ?? []), z] }));
+          set({ selection: { kind: 'zone', id: z.id } });
+          return null;
+        }
         if (e.opening) {
-          const walls = getWalls(project.room);
-          if (!walls.length) return null;
-          // Default: the longest wall, centred, unless a position was given.
-          let wall = walls.reduce((a, b) => (b.length > a.length ? b : a));
-          let offset = wall.length / 2;
+          const hosts = wallHosts(project);
+          if (!hosts.length) return null;
+          // Default: the longest wall, centred, unless a position was given (then the nearest wall).
+          let host = hosts.reduce((a, b) => (b.length > a.length ? b : a));
+          let offset = host.length / 2;
           if (at) {
             let best = Infinity;
-            for (const w of walls) {
-              const t = Math.max(0, Math.min(1, ((at.x - w.a.x) * w.dir.x + (at.y - w.a.y) * w.dir.y) / w.length));
-              const px = w.a.x + w.dir.x * t * w.length;
-              const py = w.a.y + w.dir.y * t * w.length;
-              const d = Math.hypot(px - at.x, py - at.y);
-              if (d < best) {
-                best = d;
-                wall = w;
-                offset = t * w.length;
+            for (const h of hosts) {
+              const pr = projectOnSegment(at, h.a, h.b);
+              if (pr.distance < best) {
+                best = pr.distance;
+                host = h;
+                offset = pr.t * h.length;
               }
             }
           }
-          const op: Opening = { id: uid(), kind: e.opening, wallIndex: wall.index, offset, width: e.width, height: e.height, elevation: e.elevation, flip: false, swingOut: false };
+          const op: Opening = { id: uid(), kind: e.opening, wallIndex: host.outerIndex ?? 0, offset, width: e.width, height: e.height, elevation: e.elevation, flip: false, swingOut: false };
+          if (host.interiorId) op.interiorWallId = host.interiorId;
           // Openings never overlap: fall back to the nearest free stretch of wall.
-          let placed = fitOpening(op, offset, wall.index, wall.length, project.openings);
+          let placed = fitOpening(op, offset, host.key, host.length, project.openings);
           if (placed === null) {
-            search: for (const w of [wall, ...walls.filter((x) => x !== wall)]) {
-              for (let t = e.width / 2; t <= w.length - e.width / 2; t += 5) {
-                const f = fitOpening(op, t, w.index, w.length, project.openings);
+            search: for (const h of [host, ...hosts.filter((x) => x !== host)]) {
+              for (let t = e.width / 2; t <= h.length - e.width / 2; t += 5) {
+                const f = fitOpening(op, t, h.key, h.length, project.openings);
                 if (f !== null) {
-                  op.wallIndex = w.index;
+                  op.wallIndex = h.outerIndex ?? 0;
+                  if (h.interiorId) op.interiorWallId = h.interiorId;
+                  else delete op.interiorWallId;
                   placed = f;
                   break search;
                 }
@@ -252,9 +361,47 @@ export const useStore = create<State>()(
             room: { ...p.room, points: p.room.points.filter((_, i) => i !== s.index) },
             openings: fixOpeningsAfterVertexRemoval(p.openings, s.index, p.room.points.length),
           }));
+        } else if (s.kind === 'iwall') {
+          get().mutate((p) => ({
+            ...p,
+            interiorWalls: (p.interiorWalls ?? []).filter((w) => w.id !== s.id),
+            openings: p.openings.filter((o) => o.interiorWallId !== s.id),
+          }));
+        } else if (s.kind === 'zone') {
+          get().mutate((p) => ({ ...p, zones: (p.zones ?? []).filter((z) => z.id !== s.id) }));
         } else return;
         set({ selection: null });
       },
+      addInteriorWall: (a, b) => {
+        const w: InteriorWall = { id: uid(), a, b, thickness: get().settings.iwallThickness ?? 10 };
+        get().mutate((p) => ({ ...p, interiorWalls: [...(p.interiorWalls ?? []), w] }));
+        return w.id;
+      },
+      updateInteriorWall: (id, patch, record = true) =>
+        get().mutate((p) => ({ ...p, interiorWalls: (p.interiorWalls ?? []).map((w) => (w.id === id ? { ...w, ...patch } : w)) }), record),
+      moveWallEnds: (moves, record = false) =>
+        get().mutate(
+          (p) => ({
+            ...p,
+            interiorWalls: (p.interiorWalls ?? []).map((w) => {
+              let nw = w;
+              for (const m of moves) if (m.id === w.id) nw = { ...nw, [m.end]: m.to };
+              return nw;
+            }),
+            // Doors and windows keep their distance from the wall start but stay within the wall.
+            openings: p.openings.map((o) => {
+              const w = (p.interiorWalls ?? []).find((x) => x.id === o.interiorWallId);
+              if (!w || !moves.some((m) => m.id === w.id)) return o;
+              let a = w.a;
+              let b = w.b;
+              for (const m of moves) if (m.id === w.id) m.end === 'a' ? (a = m.to) : (b = m.to);
+              const L = dist(a, b);
+              return { ...o, offset: Math.max(o.width / 2, Math.min(L - o.width / 2, o.offset)) };
+            }),
+          }),
+          record,
+        ),
+      updateZone: (id, patch, record = true) => get().mutate((p) => ({ ...p, zones: (p.zones ?? []).map((z) => (z.id === id ? { ...z, ...patch } : z)) }), record),
       duplicateSelection: () => {
         const s = get().selection;
         if (s?.kind !== 'item') return;
@@ -276,6 +423,11 @@ export const useStore = create<State>()(
       name: 'kitchen-designer-v1',
       version: 1,
       partialize: (s) => ({ project: s.project, settings: s.settings, welcomed: s.welcomed }),
+      // Keep defaults for settings added after the project was saved.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<State>;
+        return { ...current, ...p, settings: { ...DEFAULT_SETTINGS, ...(p.settings ?? {}) } };
+      },
     },
   ),
 );
@@ -286,19 +438,22 @@ function validSel(sel: Selection, p: Project): Selection {
   if (sel.kind === 'opening') return p.openings.some((o) => o.id === sel.id) ? sel : null;
   if (sel.kind === 'vertex') return sel.index < p.room.points.length ? sel : null;
   if (sel.kind === 'wall') return sel.index < p.room.points.length ? sel : null;
+  if (sel.kind === 'iwall') return (p.interiorWalls ?? []).some((w) => w.id === sel.id) ? sel : null;
+  if (sel.kind === 'zone') return (p.zones ?? []).some((z) => z.id === sel.id) ? sel : null;
   return null;
 }
 
 /** Removing vertex i merges walls i-1 and i; openings on later walls shift down one index. */
 function fixOpeningsAfterVertexRemoval(ops: Opening[], index: number, count: number): Opening[] {
   return ops
-    .filter((o) => o.wallIndex !== index && o.wallIndex !== (index - 1 + count) % count)
-    .map((o) => (o.wallIndex > index ? { ...o, wallIndex: o.wallIndex - 1 } : o));
+    .filter((o) => o.interiorWallId || (o.wallIndex !== index && o.wallIndex !== (index - 1 + count) % count))
+    .map((o) => (!o.interiorWallId && o.wallIndex > index ? { ...o, wallIndex: o.wallIndex - 1 } : o));
 }
 
 /** Splitting wall i at its midpoint inserts a vertex at i+1. */
 export function fixOpeningsAfterSplit(ops: Opening[], wallIndex: number, firstLength: number): Opening[] {
   return ops.map((o) => {
+    if (o.interiorWallId) return o;
     if (o.wallIndex > wallIndex) return { ...o, wallIndex: o.wallIndex + 1 };
     if (o.wallIndex === wallIndex && o.offset > firstLength) return { ...o, wallIndex: wallIndex + 1, offset: o.offset - firstLength };
     return o;
@@ -310,3 +465,20 @@ export const useSelectedItem = () =>
 
 export const useSelectedOpening = () =>
   useStore((s) => (s.selection?.kind === 'opening' ? s.project.openings.find((o) => o.id === (s.selection as { id: string }).id) ?? null : null));
+
+export const useSelectedWall = () =>
+  useStore((s) => (s.selection?.kind === 'iwall' ? (s.project.interiorWalls ?? []).find((w) => w.id === (s.selection as { id: string }).id) ?? null : null));
+
+export const useSelectedZone = () =>
+  useStore((s) => (s.selection?.kind === 'zone' ? (s.project.zones ?? []).find((z) => z.id === (s.selection as { id: string }).id) ?? null : null));
+
+/** Wall ends sitting on the same spot as `p` (so dragging one corner drags every wall joined there). */
+export function endsAt(p: Vec2, walls: InteriorWall[], tol = 0.6): { id: string; end: 'a' | 'b' }[] {
+  const res: { id: string; end: 'a' | 'b' }[] = [];
+  for (const w of walls) {
+    if (dist(w.a, p) < tol) res.push({ id: w.id, end: 'a' });
+    if (dist(w.b, p) < tol) res.push({ id: w.id, end: 'b' });
+  }
+  return res;
+}
+

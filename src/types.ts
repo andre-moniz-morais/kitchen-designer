@@ -20,7 +20,10 @@ export const isDoor = (k: OpeningKind) => k === 'door' || k === 'door-ext';
 export interface Opening {
   id: string;
   kind: OpeningKind;
+  /** Outer wall index (ignored when the opening sits on an interior wall). */
   wallIndex: number;
+  /** Set when the opening sits on an interior wall. */
+  interiorWallId?: string;
   /** Distance (cm) from the wall's start point to the opening centre. */
   offset: number;
   width: number;
@@ -32,7 +35,42 @@ export interface Opening {
   swingOut: boolean;
 }
 
-export type MaterialSlot = 'front' | 'body' | 'top' | 'finish';
+/** A free-standing wall segment (centreline a→b), inside or outside the outer outline. */
+export interface InteriorWall {
+  id: string;
+  a: Vec2;
+  b: Vec2;
+  thickness: number;
+  /** Wall height in cm; undefined means full height (up to the ceiling). */
+  height?: number;
+}
+
+export type ZoneKind =
+  | 'kitchen'
+  | 'living'
+  | 'dining'
+  | 'bedroom'
+  | 'bathroom'
+  | 'office'
+  | 'pantry'
+  | 'laundry'
+  | 'garage'
+  | 'gym'
+  | 'hall'
+  | 'stairs'
+  | 'other';
+
+/** A named room label. Its area and floor come from the space enclosed by walls around it. */
+export interface Zone {
+  id: string;
+  kind: ZoneKind;
+  name: string;
+  x: number;
+  y: number;
+  floorMaterial?: string;
+}
+
+export type MaterialSlot = 'front' | 'body' | 'top' | 'finish' | 'fabric';
 
 export interface ItemOptions {
   /** Dishwasher: integrated behind a cabinet front (true) or freestanding (false). */
@@ -66,6 +104,8 @@ export interface Project {
   room: Room;
   items: Item[];
   openings: Opening[];
+  interiorWalls?: InteriorWall[];
+  zones?: Zone[];
 }
 
 export type Selection =
@@ -73,7 +113,10 @@ export type Selection =
   | { kind: 'opening'; id: string }
   | { kind: 'wall'; index: number }
   | { kind: 'vertex'; index: number }
+  | { kind: 'iwall'; id: string }
+  | { kind: 'zone'; id: string }
   | null;
 
-export type Tool = 'select' | 'draw';
+/** select · draw the outer outline · draw interior walls */
+export type Tool = 'select' | 'draw' | 'wall';
 export type ViewMode = '2d' | '3d';

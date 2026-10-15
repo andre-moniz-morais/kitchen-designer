@@ -1,6 +1,7 @@
-import { PencilRuler, Square } from 'lucide-react';
+import { BrickWall, PencilRuler, Square, Tag } from 'lucide-react';
 import { useState } from 'react';
-import { getWalls, polygonArea } from '../geometry';
+import { getWalls, polygonArea, roomFaces, zoneArea } from '../geometry';
+import { ZONE_KINDS } from '../zones';
 import { WALL_COLORS } from '../materials';
 import { lRoom, rectRoom, useStore } from '../store';
 import { NumberField, Section, Segmented, Toggle } from './controls';
@@ -24,12 +25,12 @@ export function RoomPanel({ onStartDraw }: { onStartDraw?: () => void }) {
   const applyShape = () => {
     const p = st().project;
     const r = shape === 'rect' ? rectRoom(w, l, p.room) : lRoom(w, l, Math.min(cw, w - 50), Math.min(cl, l - 50), p.room);
-    st().setProject({ ...p, room: r, openings: [], items: keepItems ? p.items : [] });
+    st().setProject({ ...p, room: r, openings: p.openings.filter((o) => o.interiorWallId), items: keepItems ? p.items : [] });
   };
 
   return (
     <div className="room-panel">
-      <Section title="Forma da divisão">
+      <Section title="Contorno exterior">
         <Segmented
           value={shape}
           onChange={setShape}
@@ -62,7 +63,7 @@ export function RoomPanel({ onStartDraw }: { onStartDraw?: () => void }) {
             onStartDraw?.();
           }}
         >
-          <PencilRuler size={15} /> Desenhar planta à mão
+          <PencilRuler size={15} /> Desenhar contorno à mão
         </button>
         <p className="muted small">Clique para marcar cada canto. As linhas alinham-se na horizontal/vertical e à grelha. Pode escrever o comprimento exato de cada parede.</p>
       </Section>
@@ -81,6 +82,8 @@ export function RoomPanel({ onStartDraw }: { onStartDraw?: () => void }) {
           </div>
         </Section>
       )}
+
+      <InteriorSection onStartDraw={onStartDraw} />
 
       <Section title="Paredes e teto">
         <div className="grid2">
@@ -106,7 +109,7 @@ export function RoomPanel({ onStartDraw }: { onStartDraw?: () => void }) {
         </div>
       </Section>
 
-      <Section title="Pavimento">
+      <Section title="Pavimento geral">
         <MaterialPicker label="Chão" value={room.floorMaterial} categories={['tile', 'wood', 'stone']} onChange={(m) => st().setRoom({ floorMaterial: m })} />
       </Section>
 
@@ -134,5 +137,56 @@ export function RoomPanel({ onStartDraw }: { onStartDraw?: () => void }) {
         />
       </Section>
     </div>
+  );
+}
+
+function InteriorSection({ onStartDraw }: { onStartDraw?: () => void }) {
+  const project = useStore((s) => s.project);
+  const st = useStore.getState;
+  const iwalls = project.interiorWalls ?? [];
+  const zones = project.zones ?? [];
+  const faces = roomFaces(project);
+  return (
+    <>
+      <Section title={`Paredes interiores${iwalls.length ? ` · ${iwalls.length}` : ''}`}>
+        <button
+          type="button"
+          className="btn primary block"
+          onClick={() => {
+            st().setViewMode('2d');
+            st().setTool('wall');
+            onStartDraw?.();
+          }}
+        >
+          <BrickWall size={15} /> Desenhar paredes interiores
+        </button>
+        <p className="muted small">
+          Comece num canto, numa parede ou num ponto livre. Cada clique acaba uma parede e começa a seguinte; ao tocar noutra parede, termina. Também pode desenhar muros fora da casa.
+        </p>
+      </Section>
+      <Section title={`Divisões${zones.length ? ` · ${zones.length}` : ''}`}>
+        {zones.length === 0 ? (
+          <p className="muted small">
+            Ponha uma etiqueta de divisão (catálogo → Divisões) dentro de cada espaço para ver o nome, a área e escolher o pavimento.
+          </p>
+        ) : (
+          <div className="zone-list">
+            {zones.map((z) => {
+              const a = zoneArea(z, faces);
+              return (
+                <button key={z.id} type="button" className="zone-row" onClick={() => st().select({ kind: 'zone', id: z.id })}>
+                  <span className="zone-dot" style={{ background: ZONE_KINDS[z.kind]?.tint }} />
+                  <span className="zone-name">{z.name}</span>
+                  <span className="zone-area">{a !== null ? `${a.toFixed(1).replace('.', ',')} m²` : '—'}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <button type="button" className="btn block" onClick={() => st().addItem('zone-other')}>
+          <Tag size={15} /> Adicionar etiqueta de divisão
+        </button>
+      </Section>
+    </>
   );
 }
